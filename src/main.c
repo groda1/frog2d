@@ -29,7 +29,7 @@ int main(int argc, char **argv)
     }
 
     SDL_Event event;
-    int m_running = 1;
+    bool m_running = true;
     while (m_running)
     {
         while (SDL_PollEvent(&event))
