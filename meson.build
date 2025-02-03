@@ -9,6 +9,8 @@ project('frog2d', 'c',
 
 cc = meson.get_compiler('c')
 
+sources = []
+
 subdir('src')
 
 sdl3_dep = dependency('sdl3')

@@ -3,4 +3,4 @@ subdir('core')
 
 incdir = include_directories('core')
 
-sources = files('main.c')
+sources += files('main.c')
