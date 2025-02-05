@@ -6,11 +6,14 @@
 
 #define ARENA_HEADER_SIZE 128
 
-// #define push_array_no_zero_aligned(a, T, c, align) (T *)arena_push((a), sizeof(T)*(c), (align))
-// #define push_array_aligned(a, T, c, align) (T *)MemoryZero(push_array_no_zero_aligned(a, T, c, align), sizeof(T)*(c))
-// #define push_array_no_zero(a, T, c) push_array_no_zero_aligned(a, T, c, Max(8, AlignOf(T)))
-// #define push_array(a, T, c) push_array_aligned(a, T, c, Max(8, AlignOf(T)))
 
+// 
+// #define push_array_no_zero(a, T, c) push_array_no_zero_aligned(a, T, c, Max(8, AlignOf(T)))
+
+#define push_array_no_zero_aligned(a, T, c, align) (T *)MemoryArena_Push((a), sizeof(T)*(c), (align))
+#define push_array_aligned(a, T, c, align) (T *)MemoryZero(push_array_no_zero_aligned(a, T, c, align), sizeof(T)*(c))
+#define arena_push_array(a, T, c) push_array_aligned(a, T, c, Max(8, AlignOf(T)))
+#define arena_push(a, T) arena_push_array(a, T, 1)
 
 #define MEMORY_ARENA_DEFAULT_RESERVE_SIZE MB(64)
 #define MEMORY_ARENA_DEFAULT_COMMIT_SIZE KB(64)
@@ -47,5 +50,8 @@ u64 MemoryArena_Pos(arena_t *arena);
 void MemoryArena_PopTo(arena_t *arena, u64 pos);
 
 void MemoryArena_Clear(arena_t *arena);
+
+void MemoryArena_Print(arena_t *arena);
+
 
 #endif

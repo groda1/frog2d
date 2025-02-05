@@ -7,6 +7,7 @@
 #include <SDL3/SDL_error.h>
 
 #include "core.h"
+#include "log.h"
 #include "memory_arena.h"
 
 static bool frog2d_sdl_init()
@@ -20,6 +21,10 @@ int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
+
+    arena_t *main_arena = MemoryArena_Create("main-arena");
+
+    Log_Init(main_arena);
 
     if (!frog2d_sdl_init())
     {
@@ -61,16 +66,6 @@ int main(int argc, char **argv)
     SDL_DestroyWindow(window);
     SDL_Quit();
 
-    arena_t *main_arena = MemoryArena_Create("main-arena");
-
-
-    u64 *ptr = (u64*)MemoryArena_Push(main_arena, 32, 8);
-
-    *ptr = 1337;
-
-    printf("kek %ju\n", *ptr);
-
-    
-
+    MemoryArena_Print(main_arena);
     return EXIT_SUCCESS;
 }
