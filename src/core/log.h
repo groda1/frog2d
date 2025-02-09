@@ -15,7 +15,9 @@ typedef enum
 typedef struct
 {
     log_severity_t severity;
-    char text[256];
+    u8 text[256];
+    
+
 } log_entry_t;
 
 typedef struct
@@ -28,6 +30,7 @@ typedef struct
     u64 mask;
     u64 head;
     u64 tail;
+
 } log_t;
 
 void Log_Init(arena_t *arena);
