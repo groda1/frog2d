@@ -36,6 +36,6 @@ typedef struct
 void Log_Init(arena_t *arena);
 
 
-void Log_Entry();
+void Log_Entry(log_severity_t, const char *f, ...);
 
 #endif

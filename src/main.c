@@ -23,7 +23,6 @@ int main(int argc, char **argv)
     (void)argv;
 
     arena_t *main_arena = MemoryArena_Create("main-arena");
-
     MemoryArena_Print(main_arena);
 
     Log_Init(main_arena);
