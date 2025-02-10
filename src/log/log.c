@@ -22,7 +22,7 @@ void Log_Init(arena_t *arena)
 {
     if (logger)
         return;
-        
+
     log_t *l = arena_push(arena, log_t);
 
     l->arena = arena;
