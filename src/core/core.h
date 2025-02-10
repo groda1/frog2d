@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdarg.h>
 
 // Types
 typedef uint8_t     u8;

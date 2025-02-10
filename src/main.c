@@ -7,8 +7,11 @@
 #include <SDL3/SDL_error.h>
 
 #include "core.h"
-#include "log.h"
+#include "core_string.h"
 #include "memory_arena.h"
+
+#include "log.h"
+
 
 static bool frog2d_sdl_init()
 {
@@ -22,10 +25,21 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
+
     arena_t *main_arena = MemoryArena_Create("main-arena");
+
+
     MemoryArena_Print(main_arena);
 
     Log_Init(main_arena);
+
+
+    for (u32 i = 0; i< 10 ; i++)
+    {
+        Log(WARNING, "hej %d", i);
+
+    }
+
 
     if (!frog2d_sdl_init())
     {
