@@ -10,7 +10,7 @@ typedef enum
     DEBUG = 0,
     INFO = 1,
     WARNING = 2,
-    ERROR = 3
+    ERROR = 3,
 } log_severity_t;
 
 typedef struct

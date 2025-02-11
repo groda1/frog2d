@@ -14,6 +14,9 @@
 #include "vulkan_renderer.h"
 
 
+#define DEFAULT_WIDTH 1920
+#define DEFAULT_HEIGHT 1080
+
 static bool frog2d_sdl_init()
 {
     if (!SDL_Init(SDL_INIT_VIDEO))
@@ -36,7 +39,8 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    SDL_Window *window = SDL_CreateWindow("frog2d test", 800, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    SDL_Window *window = SDL_CreateWindow("frog2d test", DEFAULT_WIDTH, DEFAULT_HEIGHT, 
+        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     if (!window)
     {
         printf("Failed to create window: %s\n", SDL_GetError());
@@ -46,9 +50,8 @@ int main(int argc, char **argv)
     }
 
     //SDL_Vulkan_CreateSurface()
-
-    VulkanRenderer_Init(main_arena);
-
+    if (!VulkanRenderer_Init(main_arena))
+        goto _exit;
 
     SDL_Event event;
     bool m_running = true;
@@ -70,6 +73,8 @@ int main(int argc, char **argv)
         }
     }
 
+    VulkanRenderer_Destroy();
+_exit:
     SDL_DestroyWindow(window);
     SDL_Quit();
 
