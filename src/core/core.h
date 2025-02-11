@@ -57,7 +57,8 @@ typedef double      f64;
 #define Unlikely(expr)          Expect(expr, 0)
 
 // Attributes
-#define AttributePacked         __attribute__((packed));
+#define AttributePacked         __attribute__((packed))
+#define AttributeMaybeUnused    __attribute_maybe_unused__
 
 // Assert
 #define StaticAssert            static_assert
