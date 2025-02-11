@@ -65,7 +65,7 @@ void Log(log_severity_t severity, const char *log, ...)
     va_start(args, log);
     string tmp = string_fmtv(logger->arena, log, args);
     va_end(args);
-    string_copy(&tmp, &entry->text);
+    string_copy(tmp, &entry->text);
 
     if (logger->stdout)
     {

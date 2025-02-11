@@ -26,21 +26,9 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-
     arena_t *main_arena = MemoryArena_Create("main-arena");
 
-
-    MemoryArena_Print(main_arena);
-
     Log_Init(main_arena);
-
-
-    for (u32 i = 0; i< 10 ; i++)
-    {
-        Log(WARNING, "hej %d", i);
-
-    }
-
 
     if (!frog2d_sdl_init())
     {

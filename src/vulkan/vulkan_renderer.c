@@ -7,6 +7,7 @@
 
 static vk_renderer_t *renderer;
 
+static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 
 bool VulkanRenderer_Init(arena_t *arena)
@@ -16,13 +17,38 @@ bool VulkanRenderer_Init(arena_t *arena)
 
     log_instance_layer_properties();
 
+#ifdef DEBUG_BUILD
+    if (query_instance_layer_support(string_lit("VK_LAYER_KHRONOS_validation")))
+    {
+        Log(DEBUG, "VK_LAYER_KHRONOS_validation supported.");
+    }
+#endif
+
     return true;
+}
+
+#define MAX_LAYER_COUNT 16
+#define MAX_PROPERTY_COUNT MAX_LAYER_COUNT
+
+[[maybe_unused]]
+static bool query_instance_layer_support(string layer_name)
+{
+    VkLayerProperties layers[MAX_LAYER_COUNT];
+    u32 count = MAX_LAYER_COUNT;
+
+    if (vkEnumerateInstanceLayerProperties(&count, layers) == VK_SUCCESS)
+    {
+        for (u32 i = 0; i < count; i++)
+        {
+            if (string_match(layer_name, string_from(layers[i].layerName)))
+                return true;
+        }
+    }
+    return false;
 }
 
 static void log_instance_layer_properties()
 {
-#define MAX_LAYER_COUNT 64
-#define MAX_PROPERTY_COUNT MAX_LAYER_COUNT
     VkLayerProperties layers[MAX_LAYER_COUNT];
     u32 count = MAX_LAYER_COUNT;
 
