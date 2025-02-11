@@ -4,14 +4,13 @@
 
 typedef struct 
 {
+    arena_t *arena;
+
     /* data */
 } vk_renderer_t;
 
 
-vk_renderer_t VulkanRenderer_Create()
-{
-    
-}
+bool VulkanRenderer_Init(arena_t *arena);
 
 
 #endif
