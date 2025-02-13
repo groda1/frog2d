@@ -12,7 +12,25 @@
 #define ENGINE_NAME         "frog2d"
 #define ENGINE_VERSION      VK_MAKE_VERSION(0, 0, 1)
 
+#define MAX_FAMILY_COUNT            16
+#define MAX_QUEUE_PRIORITY_COUNT    8
+#define MAX_LAYER_COUNT             16
+#define MAX_PROPERTY_COUNT          MAX_LAYER_COUNT
+
 typedef struct _queue_families_t queue_families_t;
+struct _queue_families_t
+{
+    u32 graphics_family_index;
+    u32 transfer_family_index;
+    u32 compute_family_index;
+    u32 present_family_index;
+    
+    // TODO this is pointless. Replace with actual queue instead
+    u32 graphics_queue_index;
+    u32 transfer_queue_index;
+    u32 compute_queue_index;
+    u32 present_queue_index;
+};
 
 struct _vk_renderer_t
 {
@@ -22,14 +40,9 @@ struct _vk_renderer_t
     VkInstance instance;
     VkSurfaceKHR surface;
     VkPhysicalDevice physical_device;
+    VkDevice device;
 
     queue_families_t queue_families;
-
-};
-
-struct _queue_families_t
-{
-
 };
 
 
@@ -39,7 +52,8 @@ static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 static bool create_instance();
 static bool create_surface(SDL_Window *window);
-bool setup_physical_device();
+static bool setup_physical_device();
+static bool create_logical_device();
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -61,6 +75,8 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
         goto _fail;
     if (!setup_physical_device())
         goto _fail;
+    if (!create_logical_device())
+        goto _fail;
 
     Log(INFO, "Vulkan renderer initialized");
     return true;
@@ -75,10 +91,10 @@ bool VulkanRenderer_Destroy()
 {
     if (renderer)
     {
+        vkDestroyDevice(renderer->device, NULL);
         vkDestroySurfaceKHR(renderer->instance, renderer->surface, NULL);
         vkDestroyInstance(renderer->instance, NULL);
     }
-        
 
     return true;
 }
@@ -97,7 +113,7 @@ static bool create_instance()
     for (u32 i = 0; i < extension_count; i++)
         Log(DEBUG, "required extension: %s", extensions[i]);
 
-    VkApplicationInfo app_info = (VkApplicationInfo){
+    VkApplicationInfo app_info = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = APPLICATION_NAME,
         .applicationVersion = APPLICATION_VERSION,
@@ -159,7 +175,7 @@ static bool create_surface(SDL_Window *window)
     return true;
 }
 
-bool setup_physical_device()
+static bool setup_physical_device()
 {
     VkPhysicalDevice physical_devices[8];
     u32 device_count = 8;
@@ -203,12 +219,148 @@ bool setup_physical_device()
     if (!renderer->physical_device)
         return false;
 
+    u32 family_count = MAX_FAMILY_COUNT;
+    VkQueueFamilyProperties family_properties[MAX_FAMILY_COUNT];
+
+
+    queue_families_t queue_families = {
+        .graphics_family_index = U32_MAX,
+        .transfer_family_index = U32_MAX,
+        .compute_family_index = U32_MAX,
+        .present_family_index = U32_MAX,
+    };
+
+    u32 used_queues_per_family[MAX_FAMILY_COUNT];
+    MemoryZeroArray(used_queues_per_family);
+
+    vkGetPhysicalDeviceQueueFamilyProperties(renderer->physical_device, &family_count, family_properties);
+    Log(DEBUG, "queue family count: %d", family_count);
+
+    for (u32 i = 0 ; i< family_count; i++)
+    {
+        VkQueueFamilyProperties prop = family_properties[i];
+        Log(DEBUG, "queue family %d: queue_count=%d gfx=%d transfer=%d compute=%d",
+            i, prop.queueCount,
+            prop.queueFlags & VK_QUEUE_GRAPHICS_BIT,
+            prop.queueFlags & VK_QUEUE_TRANSFER_BIT,
+            prop.queueFlags & VK_QUEUE_COMPUTE_BIT);
+
+        if ((queue_families.graphics_family_index == U32_MAX) && (prop.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            if (used_queues_per_family[i] < prop.queueCount)
+            {
+                queue_families.graphics_family_index = i;
+                queue_families.graphics_queue_index = used_queues_per_family[i];
+                used_queues_per_family[i]++;
+            }
+        }
+        if ((queue_families.transfer_family_index == U32_MAX) && (prop.queueFlags & VK_QUEUE_TRANSFER_BIT))
+        {
+            if (used_queues_per_family[i] < prop.queueCount)
+            {
+                queue_families.transfer_family_index = i;
+                queue_families.transfer_queue_index = used_queues_per_family[i];
+                used_queues_per_family[i]++;
+            }
+        }
+        if ((queue_families.compute_family_index == U32_MAX) && (prop.queueFlags & VK_QUEUE_COMPUTE_BIT))
+        {
+            if (used_queues_per_family[i] < prop.queueCount)
+            {
+                queue_families.compute_family_index = i;
+                queue_families.compute_queue_index = used_queues_per_family[i];
+                used_queues_per_family[i]++;
+            }
+        }
+        if (queue_families.present_family_index == U32_MAX)
+        {
+            u32 present_supported;
+
+            if (vkGetPhysicalDeviceSurfaceSupportKHR(
+                    renderer->physical_device, i, renderer->surface, &present_supported) == VK_SUCCESS &&
+                present_supported)
+                queue_families.present_family_index = i;
+        }
+    }
+
+    if (queue_families.graphics_family_index == U32_MAX
+            || queue_families.transfer_family_index == U32_MAX
+            || queue_families.compute_family_index == U32_MAX
+            || queue_families.present_family_index == U32_MAX)
+    {
+        Log(ERROR, "failed to find all requried devices queues");
+        return false;
+    }
+    Log(DEBUG, "Queues: gfx=%d [%d] transfer=%d [%d] compute=%d [%d] present=%d [%d]",
+        queue_families.graphics_family_index,
+        queue_families.graphics_queue_index,
+        queue_families.transfer_family_index,
+        queue_families.transfer_queue_index,
+        queue_families.compute_family_index,
+        queue_families.compute_queue_index,
+        queue_families.present_family_index,
+        queue_families.present_queue_index);
+
+    renderer->queue_families = queue_families;
 
     return true;
 }
 
-#define MAX_LAYER_COUNT 16
-#define MAX_PROPERTY_COUNT MAX_LAYER_COUNT
+static bool create_logical_device()
+{
+    u8 queue_count_by_family[MAX_FAMILY_COUNT] = {0};
+    queue_families_t *families = &renderer->queue_families;
+
+    queue_count_by_family[families->graphics_family_index]++;
+    queue_count_by_family[families->transfer_family_index]++;
+    queue_count_by_family[families->compute_family_index]++;
+    queue_count_by_family[families->present_family_index]++;
+
+    f32 queue_priorities[MAX_QUEUE_PRIORITY_COUNT];
+    // TODO: separate priorities?
+    for (u32 i = 0; i < MAX_QUEUE_PRIORITY_COUNT; i++)
+        queue_priorities[i] = 1.0;
+
+    VkDeviceQueueCreateInfo queue_creates[MAX_FAMILY_COUNT];
+    u32 queue_create_count = 0;
+
+    for (u32 i = 0; i < MAX_FAMILY_COUNT; i++)
+    {
+        if (queue_count_by_family[i] > 0)
+        {
+            VkDeviceQueueCreateInfo create_info = {
+                .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                .queueFamilyIndex = i,
+                .pQueuePriorities = queue_priorities,
+                .queueCount = queue_count_by_family[i],
+            };
+            queue_creates[queue_create_count++] = create_info;
+
+            Log(DEBUG, "VkDeviceQueueCreateInfo = {.queueFamilyIndex=%d .queueCount=%d}",
+                create_info.queueFamilyIndex, create_info.queueCount);
+        }
+    }
+
+    const char *extensions[] = {"VK_KHR_swapchain", "VK_KHR_maintenance1"};
+    VkPhysicalDeviceFeatures features = {.samplerAnisotropy = true};
+
+    VkDeviceCreateInfo device_create = (VkDeviceCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pQueueCreateInfos = queue_creates,
+        .queueCreateInfoCount = queue_create_count,
+        .ppEnabledExtensionNames = extensions,
+        .enabledExtensionCount = ArrayCount(extensions),
+        .pEnabledFeatures = &features,
+    };
+
+    if (vkCreateDevice(renderer->physical_device, &device_create, NULL, &renderer->device) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to create logical device");
+        return false;
+    }
+
+    return true;
+}
 
 AttributeMaybeUnused
 bool query_instance_layer_support(string layer_name)
