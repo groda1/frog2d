@@ -12,6 +12,8 @@
 #define ENGINE_NAME         "frog2d"
 #define ENGINE_VERSION      VK_MAKE_VERSION(0, 0, 1)
 
+typedef struct _queue_families_t queue_families_t;
+
 struct _vk_renderer_t
 {
     arena_t *arena;
@@ -20,7 +22,16 @@ struct _vk_renderer_t
     VkInstance instance;
     VkSurfaceKHR surface;
     VkPhysicalDevice physical_device;
+
+    queue_families_t queue_families;
+
 };
+
+struct _queue_families_t
+{
+
+};
+
 
 static vk_renderer_t *renderer;
 
@@ -28,7 +39,7 @@ static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 static bool create_instance();
 static bool create_surface(SDL_Window *window);
-bool pick_physical_device();
+bool setup_physical_device();
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -48,7 +59,7 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
         goto _fail;
     if (!create_surface(window))
         goto _fail;
-    if (!pick_physical_device())
+    if (!setup_physical_device())
         goto _fail;
 
     Log(INFO, "Vulkan renderer initialized");
@@ -148,7 +159,7 @@ static bool create_surface(SDL_Window *window)
     return true;
 }
 
-bool pick_physical_device()
+bool setup_physical_device()
 {
     VkPhysicalDevice physical_devices[8];
     u32 device_count = 8;
@@ -175,12 +186,25 @@ bool pick_physical_device()
          */
         if (true)
         {
+            VkPhysicalDeviceProperties properties;
             renderer->physical_device = physical_devices[i];
-            Log(DEBUG, "picked physical device: %d", renderer->physical_device);
-            return true;
+            vkGetPhysicalDeviceProperties(renderer->physical_device, &properties);
+
+            Log(INFO, "picked physical device: %d %s [%d.%d.%d]",
+                properties.deviceID,
+                properties.deviceName,
+                VK_API_VERSION_MAJOR(properties.driverVersion),
+                VK_API_VERSION_MINOR(properties.driverVersion),
+                VK_API_VERSION_PATCH(properties.driverVersion));
+            break;
         }
     }
-    return false;
+
+    if (!renderer->physical_device)
+        return false;
+
+
+    return true;
 }
 
 #define MAX_LAYER_COUNT 16
