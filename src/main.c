@@ -17,12 +17,6 @@
 #define DEFAULT_WIDTH 1920
 #define DEFAULT_HEIGHT 1080
 
-static bool frog2d_sdl_init()
-{
-    if (!SDL_Init(SDL_INIT_VIDEO))
-        return false;
-    return true;
-}
 
 int main(int argc, char **argv)
 {
@@ -33,7 +27,7 @@ int main(int argc, char **argv)
 
     Log_Init(main_arena);
 
-    if (!frog2d_sdl_init())
+    if (!SDL_Init(SDL_INIT_VIDEO))
     {
         printf("Failed to init SDL: %s\n", SDL_GetError());
         return EXIT_FAILURE;
@@ -49,8 +43,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    //SDL_Vulkan_CreateSurface()
-    if (!VulkanRenderer_Init(main_arena))
+    if (!VulkanRenderer_Init(main_arena, window))
         goto _exit;
 
     SDL_Event event;
@@ -79,7 +72,6 @@ _exit:
     SDL_Quit();
 
     MemoryArena_Print(main_arena);
-
     MemoryArena_Destroy(main_arena);
 
     return EXIT_SUCCESS;
