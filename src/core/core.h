@@ -82,6 +82,9 @@ typedef double      f64;
 #define MemoryCompare(a, b, size)       memcmp((a), (b), (size))
 #define MemoryStrlen(ptr)               strlen(ptr)
 
+#define MemoryCopyStruct(d,s)           MemoryCopy((d),(s),sizeof(*(d)))
+#define MemoryCopyArray(d,s)            MemoryCopy((d),(s),sizeof(d))
+
 #define MemoryZero(dst, size)           MemorySet((dst), 0, (size))
 #define MemoryZeroStruct(s)             MemoryZero((s), sizeof(*(s)))
 #define MemoryZeroArray(a)              MemoryZero((a), sizeof(a))

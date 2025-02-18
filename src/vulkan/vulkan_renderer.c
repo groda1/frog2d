@@ -5,7 +5,6 @@
 #include "log.h"
 
 #include "vulkan_renderer.h"
-#include "vulkan_allocator.h"
 
 #define APPLICATION_NAME    "todo"
 #define APPLICATION_VERSION VK_MAKE_VERSION(0, 0, 1)
@@ -37,9 +36,10 @@ struct _queue_families_t
 struct _vk_renderer_t
 {
     arena_t *arena;
+    arena_t *frame_arena;
 
     /* data */
-    VkAllocationCallbacks  *allocator;
+
     VkInstance              instance;
     VkSurfaceKHR            surface;
     VkPhysicalDevice        physical_device;
@@ -69,13 +69,12 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 {
     u64 pos = MemoryArena_Pos(arena);
     renderer = arena_push(arena, vk_renderer_t);
+    
     renderer->arena = arena;
+    //renderer->swapchain_arena =
+    renderer->frame_arena = MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
-
-   if (!VulkanAllocator_Init())
-        goto _fail;
-    renderer->allocator = VulkanAllocator_Get();
 
     if (!create_instance())
         goto _fail;
@@ -99,11 +98,13 @@ bool VulkanRenderer_Destroy()
 {
     if (renderer)
     {
-        vkDestroyCommandPool(renderer->device, renderer->command_pool, renderer->allocator);
-        vkDestroyDevice(renderer->device, renderer->allocator);
-        vkDestroySurfaceKHR(renderer->instance, renderer->surface, renderer->allocator);
-        vkDestroyInstance(renderer->instance, renderer->allocator);
+        vkDestroyCommandPool(renderer->device, renderer->command_pool, NULL);
+        vkDestroyDevice(renderer->device, NULL);
+        vkDestroySurfaceKHR(renderer->instance, renderer->surface, NULL);
+        vkDestroyInstance(renderer->instance, NULL);
     }
+
+    MemoryArena_Destroy(renderer->frame_arena);
 
     return true;
 }
@@ -162,7 +163,7 @@ static bool create_instance()
 #endif
 
 
-    if (vkCreateInstance(&create_info, renderer->allocator, &renderer->instance) != VK_SUCCESS)
+    if (vkCreateInstance(&create_info, NULL, &renderer->instance) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create vulkan instance");
         return false;
@@ -174,7 +175,7 @@ static bool create_instance()
 
 static bool create_surface(SDL_Window *window)
 {
-    if (!SDL_Vulkan_CreateSurface(window, renderer->instance, renderer->allocator, &renderer->surface))
+    if (!SDL_Vulkan_CreateSurface(window, renderer->instance, NULL, &renderer->surface))
     {
         Log(ERROR, "Failed to create surface: %s", SDL_GetError());
         return false;
@@ -362,7 +363,7 @@ static bool create_logical_device()
         .pEnabledFeatures = &features,
     };
 
-    if (vkCreateDevice(renderer->physical_device, &device_create, renderer->allocator, &renderer->device) != VK_SUCCESS)
+    if (vkCreateDevice(renderer->physical_device, &device_create, NULL, &renderer->device) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create logical device");
         return false;
@@ -379,7 +380,7 @@ static bool create_logical_device()
         .queueFamilyIndex = families->graphics_family_index
     };
 
-    if (vkCreateCommandPool(renderer->device, &create_command_pool, renderer->allocator, &renderer->command_pool) != VK_SUCCESS)
+    if (vkCreateCommandPool(renderer->device, &create_command_pool, NULL, &renderer->command_pool) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create graphics command pool");
         return false;
