@@ -15,6 +15,10 @@
 #define MAX_QUEUE_PRIORITY_COUNT    8
 #define MAX_LAYER_COUNT             16
 #define MAX_PROPERTY_COUNT          MAX_LAYER_COUNT
+#define MAX_SURFACE_FORMATS         8
+#define MAX_PRESENT_MODES           8
+
+#define IMAGE_COUNT                 3
 
 typedef struct _queue_families_t queue_families_t;
 struct _queue_families_t
@@ -33,6 +37,17 @@ struct _queue_families_t
     VkQueue present_queue;
 };
 
+typedef struct _swapchain_t swapchain_t;
+struct _swapchain_t
+{
+    VkSwapchainKHR swapchain;
+
+    VkImage images[IMAGE_COUNT];
+    VkImageView image_views[IMAGE_COUNT];
+    VkFormat format;
+    VkExtent2D extent;
+};
+
 struct _vk_renderer_t
 {
     arena_t *arena;
@@ -46,18 +61,21 @@ struct _vk_renderer_t
     VkDevice                device;
     VkCommandPool           command_pool;
     
-    queue_families_t queue_families;
+    queue_families_t        queue_families;
+    swapchain_t             swapchain;
 };
 
 
 static vk_renderer_t *renderer;
 
+static bool create_swapchain(bool vsync);
 static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 static bool create_instance();
 static bool create_surface(SDL_Window *window);
 static bool setup_physical_device();
 static bool create_logical_device();
+
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -71,7 +89,7 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     renderer = arena_push(arena, vk_renderer_t);
     
     renderer->arena = arena;
-    //renderer->swapchain_arena =
+
     renderer->frame_arena = MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
@@ -83,6 +101,8 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     if (!setup_physical_device())
         goto _fail;
     if (!create_logical_device())
+        goto _fail;
+    if (!create_swapchain(false))
         goto _fail;
 
     Log(INFO, "Vulkan renderer initialized");
@@ -108,6 +128,82 @@ bool VulkanRenderer_Destroy()
 
     return true;
 }
+
+static bool create_swapchain(bool vsync)
+{
+    VkSurfaceCapabilitiesKHR capabilities;
+    VkSurfaceFormatKHR formats[MAX_SURFACE_FORMATS];
+    u32 format_count = MAX_SURFACE_FORMATS;
+    VkExtent2D extent;
+
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(renderer->physical_device, renderer->surface, 
+            &capabilities) != VK_SUCCESS)
+        return false;
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(renderer->physical_device, renderer->surface, 
+            &format_count, formats) != VK_SUCCESS)
+        return false;
+
+
+    Log(DEBUG, "format count %d", format_count);
+
+    /* choose a swapchain surface format */
+    VkSurfaceFormatKHR format = {0};
+    for (u32 i = 0; i< format_count; i++)
+        if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            format = formats[i];
+    if (format.format != VK_FORMAT_B8G8R8A8_SRGB)
+    {
+        Log(ERROR, "found no suitable swapchain surface format");
+        return false;
+    }
+    
+    /* choose swapchain present mode */
+    VkPresentModeKHR present_mode = vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+    /* verify surface capabilities */
+    if (capabilities.currentExtent.height == U32_MAX || capabilities.currentExtent.width == U32_MAX)
+    {
+        Log(ERROR, "bad surface");
+        return false;
+    }
+    extent = capabilities.currentExtent;
+
+    /* verify image count */
+    if (capabilities.minImageCount > IMAGE_COUNT || capabilities.maxImageCount < IMAGE_COUNT)
+    {
+        Log(ERROR, "unsupported swapchain image count: min=%d max=%d", 
+                capabilities.minImageCount, capabilities.maxImageCount);
+        return false;
+    }
+
+    u32 queue_families[2] = {renderer->queue_families.graphics_family_index, renderer->queue_families.present_family_index};
+    VkSharingMode image_sharing_mode;
+    if (queue_families[0] != queue_families[1])
+        image_sharing_mode = VK_SHARING_MODE_CONCURRENT;
+    else
+        image_sharing_mode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkSwapchainCreateInfoKHR create_info = {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = renderer->surface,
+        .minImageCount = IMAGE_COUNT,
+        .imageColorSpace = format.colorSpace,
+        .imageFormat = format.format,
+        .imageExtent = extent,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = image_sharing_mode,
+        .pQueueFamilyIndices = queue_families,
+        .queueFamilyIndexCount = ArrayCount(queue_families),
+        .preTransform = capabilities.currentTransform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = present_mode,
+        .clipped = true,
+        .imageArrayLayers = 1
+    };
+
+    return false;
+}
+
 
 static bool create_instance()
 {
