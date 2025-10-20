@@ -4,10 +4,10 @@
 
 
 #include <stdint.h>
-#include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdarg.h>
+#include <string.h>
 
 // Types
 typedef uint8_t     u8;
@@ -67,7 +67,7 @@ typedef double      f64;
 	})
 #define ClampTop(A, X) Min(A, X)
 #define ClampBot(X, B) Max(X, B)
-
+#define Clamp(A, X, B) Min(Max(A, X), B)
 
 // Branch predictor hints
 #define Expect(expr, val)       __builtin_expect((expr), (val))
@@ -107,7 +107,7 @@ typedef double      f64;
 #define MemoryZeroStruct(s)             MemoryZero((s), sizeof(*(s)))
 #define MemoryZeroArray(a)              MemoryZero((a), sizeof(a))
 
-#define MemoryMatch(a, b, z) (MemoryCompare((a), (b), (z)) == 0)
+#define MemoryMatch(a, b, z)            (MemoryCompare((a), (b), (z)) == 0)
 
 // Misc helper macros
 #define ArrayCount(a) (sizeof(a) / sizeof((a)[0]))

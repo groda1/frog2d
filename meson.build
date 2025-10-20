@@ -34,11 +34,6 @@ endforeach
 
 shader_depend = declare_dependency (sources: shader_targets)
 
-# build shaders
-#foreach shader : shaders
-#    run_command('glslangValidator', '-V', join_paths(meson.current_source_dir(), 'src', 'main', 'resource', 'shaders', shader), '-o', join_paths(meson.current_build_dir(), 'resources', 'shaders', shader + '.spv'), check: true)
-#endforeach
-
 executable('frog2d',
     sources,
     win_subsystem: 'windows',
