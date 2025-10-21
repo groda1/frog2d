@@ -20,8 +20,6 @@
 #define MAX_SURFACE_FORMATS         8
 #define MAX_PRESENT_MODES           8
 
-#define IMAGE_COUNT                 3
-
 typedef struct _queue_families_t queue_families_t;
 struct _queue_families_t
 {
@@ -39,37 +37,26 @@ struct _queue_families_t
     VkQueue present_queue;
 };
 
-typedef struct _swapchain_t swapchain_t;
-struct _swapchain_t
-{
-    VkSwapchainKHR handle;
-
-    VkImage images[IMAGE_COUNT];
-    VkImageView image_views[IMAGE_COUNT];
-    VkFormat format;
-    VkExtent2D extent;
-};
-
 struct _vk_renderer_t
 {
     arena_t *arena;
     arena_t *frame_arena;
 
     /* data */
+    VkInstance                          instance;
+    VkSurfaceKHR                        surface;
+    VkExtent2D                          window_extent;
+    VkPhysicalDevice                    physical_device;
+    VkPhysicalDeviceMemoryProperties    physical_device_memory_prop;
+    VkDevice                            device;
+    VkCommandPool                       command_pool;
 
-    VkInstance              instance;
-    VkSurfaceKHR            surface;
-    VkExtent2D              window_extent;
-    VkPhysicalDevice        physical_device;
-    VkDevice                device;
-    VkCommandPool           command_pool;
-
-    queue_families_t        queue_families;
-    swapchain_t             swapchain;
+    queue_families_t                    queue_families;
+    swapchain_t                         swapchain;
 };
 
 
-static vk_renderer_t *renderer;
+static vk_renderer_t *g_renderer;
 
 static bool create_swapchain(bool vsync);
 static bool query_instance_layer_support(string layer_name);
@@ -89,10 +76,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 {
     u64 pos = MemoryArena_Pos(arena);
-    renderer = arena_push(arena, vk_renderer_t);
+    g_renderer = arena_push(arena, vk_renderer_t);
 
-    renderer->arena = arena;
-    renderer->frame_arena = MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
+    g_renderer->arena = arena;
+    g_renderer->frame_arena = MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
 
@@ -107,27 +94,29 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     if (!create_swapchain(false))
         goto _fail;
 
+
+
     Log(INFO, "Vulkan renderer initialized");
     return true;
 
 _fail:
     MemoryArena_PopTo(arena, pos);
-    renderer = NULL;
+    g_renderer = NULL;
     return false;
 }
 
 bool VulkanRenderer_Destroy()
 {
-    if (renderer)
+    if (g_renderer)
     {
-        vkDestroySwapchainKHR(renderer->device, renderer->swapchain.handle, NULL);
-        vkDestroyCommandPool(renderer->device, renderer->command_pool, NULL);
-        vkDestroyDevice(renderer->device, NULL);
-        vkDestroySurfaceKHR(renderer->instance, renderer->surface, NULL);
-        vkDestroyInstance(renderer->instance, NULL);
+        vkDestroySwapchainKHR(g_renderer->device, g_renderer->swapchain.handle, NULL);
+        vkDestroyCommandPool(g_renderer->device, g_renderer->command_pool, NULL);
+        vkDestroyDevice(g_renderer->device, NULL);
+        vkDestroySurfaceKHR(g_renderer->instance, g_renderer->surface, NULL);
+        vkDestroyInstance(g_renderer->instance, NULL);
     }
 
-    MemoryArena_Destroy(renderer->frame_arena);
+    MemoryArena_Destroy(g_renderer->frame_arena);
 
     return true;
 }
@@ -139,10 +128,10 @@ static bool create_swapchain(bool vsync)
     u32 format_count = MAX_SURFACE_FORMATS;
     VkExtent2D extent;
 
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(renderer->physical_device, renderer->surface,
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_renderer->physical_device, g_renderer->surface,
             &capabilities) != VK_SUCCESS)
         return false;
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(renderer->physical_device, renderer->surface,
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(g_renderer->physical_device, g_renderer->surface,
             &format_count, formats) != VK_SUCCESS)
         return false;
 
@@ -168,10 +157,10 @@ static bool create_swapchain(bool vsync)
     if (capabilities.currentExtent.height == U32_MAX ||
         capabilities.currentExtent.width == U32_MAX) {
         extent.width = Clamp(capabilities.minImageExtent.width,
-                             renderer->window_extent.width,
+                             g_renderer->window_extent.width,
                              capabilities.maxImageExtent.width);
         extent.height = Clamp(capabilities.minImageExtent.height,
-                              renderer->window_extent.height,
+                              g_renderer->window_extent.height,
                               capabilities.maxImageExtent.height);
     } else {
         extent = capabilities.currentExtent;
@@ -180,14 +169,15 @@ static bool create_swapchain(bool vsync)
     Log(DEBUG, "extent %u, %u", extent.width, extent.height);
 
     /* verify image count */
-    if (capabilities.minImageCount > IMAGE_COUNT || capabilities.maxImageCount < IMAGE_COUNT)
+    if (capabilities.minImageCount > MAX_FRAMES_IN_FLIGHT ||
+        capabilities.maxImageCount < MAX_FRAMES_IN_FLIGHT)
     {
-        Log(ERROR, "unsupported swapchain image count: min=%d max=%d",
-                capabilities.minImageCount, capabilities.maxImageCount);
+        Log(ERROR, "unsupported swapchain image count: min=%d max=%d", capabilities.minImageCount,
+            capabilities.maxImageCount);
         return false;
     }
 
-    u32 queue_families[2] = {renderer->queue_families.graphics_family_index, renderer->queue_families.present_family_index};
+    u32 queue_families[2] = {g_renderer->queue_families.graphics_family_index, g_renderer->queue_families.present_family_index};
     VkSharingMode image_sharing_mode;
     if (queue_families[0] != queue_families[1])
         image_sharing_mode = VK_SHARING_MODE_CONCURRENT;
@@ -196,8 +186,8 @@ static bool create_swapchain(bool vsync)
 
     VkSwapchainCreateInfoKHR create_info = {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .surface = renderer->surface,
-        .minImageCount = IMAGE_COUNT,
+        .surface = g_renderer->surface,
+        .minImageCount = MAX_FRAMES_IN_FLIGHT,
         .imageColorSpace = format.colorSpace,
         .imageFormat = format.format,
         .imageExtent = extent,
@@ -212,18 +202,18 @@ static bool create_swapchain(bool vsync)
         .imageArrayLayers = 1
     };
 
-    if (vkCreateSwapchainKHR(renderer->device,
+    if (vkCreateSwapchainKHR(g_renderer->device,
                              &create_info,
                              NULL,
-                             &renderer->swapchain.handle) != VK_SUCCESS)
+                             &g_renderer->swapchain.handle) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create swapchain");
         return false;
     }
 
-    u32 image_count = IMAGE_COUNT;
-    VkResult ret = vkGetSwapchainImagesKHR(renderer->device, renderer->swapchain.handle,
-                                           &image_count, renderer->swapchain.images);
+    u32 image_count = MAX_FRAMES_IN_FLIGHT;
+    VkResult ret = vkGetSwapchainImagesKHR(g_renderer->device, g_renderer->swapchain.handle,
+                                           &image_count, g_renderer->swapchain.images);
     if (ret != VK_SUCCESS && ret != VK_INCOMPLETE)
     {
         Log(ERROR, "failed to fetch swapchain images");
@@ -232,22 +222,21 @@ static bool create_swapchain(bool vsync)
 
     Log(INFO, "swapchain image count: %d", image_count);
 
-    for (u32 i = 0; i < IMAGE_COUNT; i++)
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
-        if (!VulkanImage_CreateView(renderer->device, renderer->swapchain.images[i], format.format,
-                               VK_IMAGE_ASPECT_COLOR_BIT, 1, &renderer->swapchain.image_views[i]))
+        if (!VulkanImage_CreateView(g_renderer->device, g_renderer->swapchain.images[i], format.format,
+                               VK_IMAGE_ASPECT_COLOR_BIT, 1, &g_renderer->swapchain.image_views[i]))
         {
             Log(ERROR, "failed to create swapchain image view");
             return false;
         }
     }
 
-    renderer->swapchain.extent = extent;
-    renderer->swapchain.format = format.format;
+    g_renderer->swapchain.extent = extent;
+    g_renderer->swapchain.format = format.format;
 
     return true;
 }
-
 
 static bool create_instance()
 {
@@ -303,7 +292,7 @@ static bool create_instance()
 #endif
 
 
-    if (vkCreateInstance(&create_info, NULL, &renderer->instance) != VK_SUCCESS)
+    if (vkCreateInstance(&create_info, NULL, &g_renderer->instance) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create vulkan instance");
         return false;
@@ -315,7 +304,7 @@ static bool create_instance()
 
 static bool create_surface(SDL_Window *window)
 {
-    if (!SDL_Vulkan_CreateSurface(window, renderer->instance, NULL, &renderer->surface))
+    if (!SDL_Vulkan_CreateSurface(window, g_renderer->instance, NULL, &g_renderer->surface))
     {
         Log(ERROR, "Failed to create surface: %s", SDL_GetError());
         return false;
@@ -337,7 +326,7 @@ static bool setup_physical_device()
     VkPhysicalDevice physical_devices[8];
     u32 device_count = 8;
 
-    if (vkEnumeratePhysicalDevices(renderer->instance, &device_count, physical_devices) != VK_SUCCESS)
+    if (vkEnumeratePhysicalDevices(g_renderer->instance, &device_count, physical_devices) != VK_SUCCESS)
     {
             Log(ERROR, "Failed to enumerate physical devices");
             return false;
@@ -360,8 +349,8 @@ static bool setup_physical_device()
         if (true)
         {
             VkPhysicalDeviceProperties properties;
-            renderer->physical_device = physical_devices[i];
-            vkGetPhysicalDeviceProperties(renderer->physical_device, &properties);
+            g_renderer->physical_device = physical_devices[i];
+            vkGetPhysicalDeviceProperties(g_renderer->physical_device, &properties);
 
             Log(INFO, "picked physical device: %d %s [%d.%d.%d]",
                 properties.deviceID, properties.deviceName,
@@ -372,8 +361,10 @@ static bool setup_physical_device()
         }
     }
 
-    if (!renderer->physical_device)
+    if (!g_renderer->physical_device)
         return false;
+
+    vkGetPhysicalDeviceMemoryProperties(g_renderer->physical_device, &g_renderer->physical_device_memory_prop);
 
     u32 family_count = MAX_FAMILY_COUNT;
     VkQueueFamilyProperties family_properties[MAX_FAMILY_COUNT];
@@ -388,7 +379,7 @@ static bool setup_physical_device()
     u32 used_queues_per_family[MAX_FAMILY_COUNT];
     MemoryZeroArray(used_queues_per_family);
 
-    vkGetPhysicalDeviceQueueFamilyProperties(renderer->physical_device, &family_count, family_properties);
+    vkGetPhysicalDeviceQueueFamilyProperties(g_renderer->physical_device, &family_count, family_properties);
     Log(DEBUG, "queue family count: %d", family_count);
 
     for (u32 i = 0 ; i< family_count; i++)
@@ -432,7 +423,7 @@ static bool setup_physical_device()
             u32 present_supported;
 
             if (vkGetPhysicalDeviceSurfaceSupportKHR(
-                    renderer->physical_device, i, renderer->surface, &present_supported) == VK_SUCCESS &&
+                    g_renderer->physical_device, i, g_renderer->surface, &present_supported) == VK_SUCCESS &&
                 present_supported)
                 queue_families.present_family_index = i;
         }
@@ -456,7 +447,7 @@ static bool setup_physical_device()
         queue_families.present_family_index,
         queue_families.present_queue_index);
 
-    renderer->queue_families = queue_families;
+    g_renderer->queue_families = queue_families;
 
     return true;
 }
@@ -464,7 +455,7 @@ static bool setup_physical_device()
 static bool create_logical_device()
 {
     u8 queue_count_by_family[MAX_FAMILY_COUNT] = {0};
-    queue_families_t *families = &renderer->queue_families;
+    queue_families_t *families = &g_renderer->queue_families;
 
     queue_count_by_family[families->graphics_family_index]++;
     queue_count_by_family[families->transfer_family_index]++;
@@ -509,15 +500,15 @@ static bool create_logical_device()
         .pEnabledFeatures = &features,
     };
 
-    if (vkCreateDevice(renderer->physical_device, &device_create, NULL, &renderer->device) != VK_SUCCESS)
+    if (vkCreateDevice(g_renderer->physical_device, &device_create, NULL, &g_renderer->device) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create logical device");
         return false;
     }
 
-    vkGetDeviceQueue(renderer->device, families->graphics_family_index, families->graphics_queue_index, &families->graphics_queue);
-    vkGetDeviceQueue(renderer->device, families->transfer_family_index, families->transfer_queue_index, &families->transfer_queue);
-    vkGetDeviceQueue(renderer->device, families->present_family_index, families->present_queue_index, &families->present_queue);
+    vkGetDeviceQueue(g_renderer->device, families->graphics_family_index, families->graphics_queue_index, &families->graphics_queue);
+    vkGetDeviceQueue(g_renderer->device, families->transfer_family_index, families->transfer_queue_index, &families->transfer_queue);
+    vkGetDeviceQueue(g_renderer->device, families->present_family_index, families->present_queue_index, &families->present_queue);
 
 
     VkCommandPoolCreateInfo create_command_pool = {
@@ -526,7 +517,7 @@ static bool create_logical_device()
         .queueFamilyIndex = families->graphics_family_index
     };
 
-    if (vkCreateCommandPool(renderer->device, &create_command_pool, NULL, &renderer->command_pool) != VK_SUCCESS)
+    if (vkCreateCommandPool(g_renderer->device, &create_command_pool, NULL, &g_renderer->command_pool) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create graphics command pool");
         return false;
