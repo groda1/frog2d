@@ -1,4 +1,3 @@
-
 #include <sys/mman.h>
 
 #include "log.h"
@@ -179,7 +178,7 @@ void MemoryArena_Clear(arena_t *arena)
 }
 
 void MemoryArena_Print(arena_t *arena)
-{   
+{
     arena_t * current = arena->current;
 
     Log(DEBUG, "%s:", current->name);
@@ -191,20 +190,7 @@ void MemoryArena_Print(arena_t *arena)
             current->base_pos,
             current->commited / KB(1),
             current->pos);
-        
+
         current = current->prev;
     }
-}
-
-scratch_t Scratch_Begin(arena_t *arena)
-{
-    return (scratch_t){
-        .arena = arena,
-        .pos = MemoryArena_Pos(arena),
-    };
-}
-
-void Scratch_End(scratch_t scratch)
-{
-    MemoryArena_PopTo(scratch.arena, scratch.pos);
 }
