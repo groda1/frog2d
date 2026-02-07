@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     }
 
     SDL_Window *window = SDL_CreateWindow(
-        "frog2d test", DEFAULT_WIDTH, DEFAULT_HEIGHT,
+        "dungeon crawl frog soup", DEFAULT_WIDTH, DEFAULT_HEIGHT,
         SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE);
     if (!window)
     {
