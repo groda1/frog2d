@@ -32,7 +32,8 @@ typedef enum {
 } target_type_t;
 
 
-typedef struct
+typedef struct _render_target render_target_t;
+struct _render_target
 {
     target_type_t type;
     union
@@ -40,23 +41,25 @@ typedef struct
         swapchain_target_t  swapchain_target;
         image_target_t      image_target;
     };
-} render_target_t;
+};
 
 
-typedef struct _render_pass_t render_pass_t;
-struct _render_pass_t
+typedef struct _render_pass render_pass_t;
+struct _render_pass
 {
     u64             handle;
     VkExtent2D      extent;
     render_target_t target;
     VkRenderPass    vk_render_pass;
-    // pipeline_t pipelines[MAX_PIPELINES_PER_PASS];
-    // u64        pipeline_count;
+
+    //pipeline_t      pipelines[MAX_PIPELINES_PER_PASS];
+    u64             pipeline_count;
+
     bool            active;
 };
 
-typedef struct _vk_passes_t vk_passes_t;
-struct _vk_passes_t
+typedef struct _vk_passes vk_passes_t;
+struct _vk_passes
 {
     render_pass_t      swapchain_pass;
     bool               swapchain_set;
@@ -77,4 +80,12 @@ bool VulkanPass_CreateSwapchainPass(
     // VulkanImage_CreateDepthResources();
 
     return true;
+}
+
+
+
+static render_pass_t new_swapchain_pass()
+{
+
+    // create depth resources
 }
