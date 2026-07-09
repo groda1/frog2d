@@ -372,6 +372,11 @@ buffer_object_handle_t VulkanRenderer_CreateUniformBuffer(u64 size, uniform_stag
     return VulkanBuffer_CreateObject(s_renderer->global_arena, size, type);
 }
 
+buffer_object_handle_t VulkanRenderer_CreateStorageBuffer(u64 capacity)
+{
+    return VulkanBuffer_CreateObject(s_renderer->global_arena, capacity, BO_STORAGE);
+}
+
 bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size)
 {
     return VulkanBuffer_SetObjectData(handle, data, size);
@@ -895,7 +900,9 @@ static bool create_logical_device()
     };
 
     /* bindless textures: one global runtime-sized descriptor array that
-       stays bound while texture slots are written at load time */
+       stays bound while texture slots are written at load time.
+       bufferDeviceAddress: storage buffers referenced by a 64-bit address in
+       the push constant instead of descriptors */
     VkPhysicalDeviceVulkan12Features features12 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &features13,
@@ -903,6 +910,7 @@ static bool create_logical_device()
         .descriptorBindingSampledImageUpdateAfterBind = true,
         .descriptorBindingPartiallyBound = true,
         .runtimeDescriptorArray = true,
+        .bufferDeviceAddress = true,
     };
 
     VkDeviceCreateInfo device_create = {

@@ -29,6 +29,9 @@ struct _buffer_object_t
     VkBuffer                device_buffers[MAX_FRAMES_IN_FLIGHT];
     VkDeviceMemory          device_mem[MAX_FRAMES_IN_FLIGHT];
 
+    /* BO_STORAGE only; shaders reach the buffer through this address */
+    VkDeviceAddress         device_addresses[MAX_FRAMES_IN_FLIGHT];
+
     // TODO: is this only needed for growable BOs?
     //pipeline_handle_t       assigned_pipelines[MAX_ASSIGNMENTS];
     //u32                     assigned_pipelines_count;
@@ -173,7 +176,7 @@ buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
     }
 
     VkBufferUsageFlags usage = type == BO_STORAGE
-        ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+        ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
         : VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
     buffer_object_t *object = arena_push(arena, buffer_object_t);
@@ -194,6 +197,15 @@ buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                   &object->device_buffers[i], &object->device_mem[i]))
             return BUFFER_OBJECT_HANDLE_INVALID;
+
+        if (type == BO_STORAGE)
+        {
+            VkBufferDeviceAddressInfo address_info = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                .buffer = object->device_buffers[i],
+            };
+            object->device_addresses[i] = vkGetBufferDeviceAddress(g_device, &address_info);
+        }
     }
 
     buffer_object_handle_t handle = s_buffers.buffer_object_count;
@@ -240,6 +252,15 @@ u64 VulkanBuffer_GetObjectCapacity(buffer_object_handle_t handle)
     Assert(handle < s_buffers.buffer_object_count);
 
     return s_buffers.buffer_objects[handle]->capacity;
+}
+
+VkDeviceAddress VulkanBuffer_GetDeviceAddress(buffer_object_handle_t handle, u32 frame_index)
+{
+    Assert(handle < s_buffers.buffer_object_count);
+    Assert(frame_index < MAX_FRAMES_IN_FLIGHT);
+    Assert(s_buffers.buffer_objects[handle]->type == BO_STORAGE);
+
+    return s_buffers.buffer_objects[handle]->device_addresses[frame_index];
 }
 
 bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
@@ -333,8 +354,14 @@ static bool create_vulkan_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
         return false;
     }
 
+    VkMemoryAllocateFlagsInfo allocate_flags = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+        .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+    };
+
     VkMemoryAllocateInfo allocate_info = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT ? &allocate_flags : NULL,
         .allocationSize = memory_requirements.size,
         .memoryTypeIndex = memory_type_index,
     };

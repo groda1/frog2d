@@ -95,7 +95,7 @@ void *MemoryArena_Push(arena_t *arena, u64 size, u64 align)
 
         OS_MemoryCommit(cmt_ptr, cmt_size);
 
-        Log(DEBUG, "arena %s: commited %ju", cmt_size);
+        Log(DEBUG, "arena %s: commited %ju", current->name, cmt_size);
         current->commited = cmt_pst_clamped;
     }
 

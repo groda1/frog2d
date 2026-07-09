@@ -4,9 +4,8 @@
 
 layout(set = 0, binding = 0) uniform sampler2D textures[];
 
-// provisional push constant layout; revisit when text rendering is ported
 layout (push_constant) uniform pushConstants {
-    uint textureIndex;
+    layout(offset = 8) uint textureIndex;
 } pc;
 
 layout(location = 0) flat in vec4 fragColor;

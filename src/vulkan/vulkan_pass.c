@@ -3,6 +3,7 @@
 #include "core.h"
 #include "log.h"
 #include "render_types.h"
+#include "vulkan_buffer.h"
 #include "vulkan_context.h"
 #include "vulkan_pass.h"
 #include "vulkan_image.h"
@@ -437,10 +438,22 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
                                pipeline->push_constant_size, command->push_constant_data);
         }
 
+        if (command->storage_buffer != BUFFER_OBJECT_HANDLE_INVALID)
+        {
+            /* the shader dereferences the address via GL_EXT_buffer_reference */
+            VkDeviceAddress address =
+                VulkanBuffer_GetDeviceAddress(command->storage_buffer, image_index);
+
+            Assert(pipeline->push_constant_size >= sizeof(address));
+            vkCmdPushConstants(command_buffer, pipeline->layout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(address), &address);
+        }
+
         VkDeviceSize vertex_buffer_offset = 0;
         vkCmdBindVertexBuffers(command_buffer, 0, 1, &command->vertex_buffer, &vertex_buffer_offset);
         vkCmdBindIndexBuffer(command_buffer, command->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(command_buffer, command->index_count, 1, 0, 0, 0);
+        vkCmdDrawIndexed(command_buffer, command->index_count, command->instance_count, 0, 0, 0);
     }
 
     vkCmdEndRendering(command_buffer);

@@ -15,13 +15,6 @@ vulkan 1.4 features we now have access to but don't use yet:
   bake time. Would delete the per-pipeline descriptor pool TODO.
 - maintenance4+: pipeline layouts allow VK_NULL_HANDLE holes in set layouts,
   relaxed subgroup ops, etc. Minor conveniences.
-- buffer device address (core 1.2): storage buffers without descriptors — pass
-  vkGetBufferDeviceAddress as a 64-bit pointer in the push constant, shader
-  dereferences it via GL_EXT_buffer_reference. Makes "growable SBOs" trivial:
-  allocate bigger, pass the new address next frame, retire the old buffer
-  after MAX_FRAMES_IN_FLIGHT frames. No descriptor rewrites, no pipeline
-  tracking (the thing that made growable SBOs painful in vulkrap). Do before
-  text rendering; start text with a fixed-cap SBO + overflow warning either way.
 - per-frame GPU arena: instance data (text, sprites) is rewritten every frame,
   so it wants a transient allocator, not a persistent buffer per system — one
   buffer per frame-in-flight, sub-allocate ranges each frame (cursor reset in
@@ -49,8 +42,10 @@ texture path follow-ups:
   generate mips at upload (vkCmdBlitImage chain)
 - sampler config is hardcoded (NEAREST mag / LINEAR min, repeat, aniso 16);
   expose filtering/addressing per sampler, e.g. sampler_config_t
-- 2d_text_ssbo.frag's push constant layout is provisional (just textureIndex);
-  settle it when text rendering is ported
+- storage buffers (BDA, done) are fixed-capacity; growth would be: allocate a
+  bigger buffer, hand out the new address next frame, retire the old buffer
+  after MAX_FRAMES_IN_FLIGHT frames — no descriptor or pipeline tracking
+  needed, which was the painful part in vulkrap
 - uniform buffers (set 1) could migrate into the global set model too; then
   every pipeline shares one layout and descriptor code exists in exactly one
   place
@@ -69,7 +64,8 @@ misc:
   io in the arena)
 - setup_physical_device picks the first 1.4-capable device; still needs the
   queue family / extension / feature / swapchain support checks from the TODO
-  there, now including the Vulkan12Features descriptor indexing bits,
-  Vulkan13Features dynamicRendering and Vulkan14Features hostImageCopy
+  there, now including the Vulkan12Features descriptor indexing bits +
+  bufferDeviceAddress, Vulkan13Features dynamicRendering and Vulkan14Features
+  hostImageCopy
 - image.c is the only engine file including stb; keep it that way so the
   stb_inc meson include stays engine-private

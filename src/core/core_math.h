@@ -3,6 +3,7 @@
 
 #include "HandmadeMath.h"
 
+#define V2 HMM_V2
 #define V3 HMM_V3
 #define V4 HMM_V4
 

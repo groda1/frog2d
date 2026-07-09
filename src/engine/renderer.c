@@ -76,6 +76,11 @@ buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t st
     return VulkanRenderer_CreateUniformBuffer(size, stage);
 }
 
+buffer_object_handle_t Renderer_CreateStorageBuffer(u64 capacity)
+{
+    return VulkanRenderer_CreateStorageBuffer(capacity);
+}
+
 bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size)
 {
     return VulkanRenderer_SetBufferObject(handle, data, size);
@@ -84,15 +89,26 @@ bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
                        const void *push_constant_data, mesh_handle_t mesh_handle)
 {
+    Renderer_DrawMeshInstanced(pass_handle, pipeline, push_constant_data,
+                               BUFFER_OBJECT_HANDLE_INVALID, 1, mesh_handle);
+}
+
+void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
+                                const void *push_constant_data,
+                                buffer_object_handle_t instance_buffer, u32 instance_count,
+                                mesh_handle_t mesh_handle)
+{
     const mesh_t *mesh = MeshManager_GetMesh(mesh_handle);
 
     draw_command_t draw_command = {
         .pass = pass_handle,
         .pipeline = pipeline,
         .push_constant_data = push_constant_data,
+        .storage_buffer = instance_buffer,
         .vertex_buffer = mesh->vertex_buffer,
         .index_buffer = mesh->index_buffer,
         .index_count = mesh->index_count,
+        .instance_count = instance_count,
     };
 
     VulkanPass_AddDrawCommand(&draw_command);

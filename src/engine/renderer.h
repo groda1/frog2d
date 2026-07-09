@@ -21,6 +21,11 @@ pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
 
 buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t stage);
 
+/* fixed-capacity storage buffer; like textures, needs no pipeline
+   configuration: shaders reach it through its device address
+   (GL_EXT_buffer_reference), passed in the push constant per draw */
+buffer_object_handle_t Renderer_CreateStorageBuffer(u64 capacity);
+
 /* the data is copied into the buffer object's cpu shadow and uploaded to the
    gpu buffers over the next frames; the pointer only needs to stay valid for
    the duration of the call */
@@ -30,5 +35,14 @@ bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u
    duration of the call */
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
                        const void *push_constant_data, mesh_handle_t mesh);
+
+/* draws instance_count instances; if instance_buffer is a valid storage
+   buffer handle, the renderer writes its device address into the first 8
+   bytes of the push constant, so the push constant struct must start with a
+   u64 placeholder */
+void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
+                                const void *push_constant_data,
+                                buffer_object_handle_t instance_buffer, u32 instance_count,
+                                mesh_handle_t mesh);
 
 #endif

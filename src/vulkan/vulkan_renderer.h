@@ -30,6 +30,7 @@ VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
 VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count);
 
 buffer_object_handle_t VulkanRenderer_CreateUniformBuffer(u64 size, uniform_stage_t stage);
+buffer_object_handle_t VulkanRenderer_CreateStorageBuffer(u64 capacity);
 bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size);
 
 texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,

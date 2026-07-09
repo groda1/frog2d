@@ -25,6 +25,10 @@ bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data,
 VkBuffer VulkanBuffer_GetDeviceBuffer(buffer_object_handle_t handle, u32 frame_index);
 u64 VulkanBuffer_GetObjectCapacity(buffer_object_handle_t handle);
 
+/* BO_STORAGE only: the buffer's device address for the given frame in
+   flight, for shaders using GL_EXT_buffer_reference */
+VkDeviceAddress VulkanBuffer_GetDeviceAddress(buffer_object_handle_t handle, u32 frame_index);
+
 bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index);
 
 #endif
