@@ -10,7 +10,7 @@
 
 
 #define MAX_PIPELINES_PER_PASS 64 // TODO: this need be dynamic
-#define MAX_DRAW_COMMANDS_PER_PASS 1024
+#define SWAPCHAIN_PASS_MAX_DRAW_COMMANDS 1024
 
 
 typedef struct _swapchain_target_t swapchain_target_t;
@@ -59,8 +59,8 @@ struct _render_pass
     pipeline_t      pipelines[MAX_PIPELINES_PER_PASS];
     u64             pipeline_count;
 
-    /* draw commands for the current frame */
-    draw_command_t  draw_commands[MAX_DRAW_COMMANDS_PER_PASS];
+    draw_command_t  *draw_commands;
+    u32             draw_command_capacity;
     u32             draw_command_count;
 
     bool            active;
@@ -72,6 +72,8 @@ struct _vk_passes
     render_pass_t       swapchain_pass;
     bool                swapchain_set;
     VkFormat            depth_format;
+
+    arena_t             *frame_arena;
 };
 
 static vk_passes_t g_passes = {};
@@ -83,13 +85,15 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
 static void destroy_render_pass(VkDevice device, render_pass_t *pass);
 static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target);
 
-bool VulkanPass_Init(VkInstance instance, VkPhysicalDevice physical_device)
+bool VulkanPass_Init(arena_t *frame_arena, VkInstance instance, VkPhysicalDevice physical_device)
 {
     if (!VulkanImage_FindDepthFormat(instance, physical_device, &g_passes.depth_format))
     {
         Log(ERROR, "failed to find a supported depth format");
         return false;
     }
+
+    g_passes.frame_arena = frame_arena;
 
     return true;
 }
@@ -105,18 +109,16 @@ bool VulkanPass_Destroy(VkDevice device)
 }
 
 bool VulkanPass_CreateSwapchainPass(
-    VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
-    swapchain_t *swapchain)
+    arena_t *arena, VkDevice device,
+    VkPhysicalDeviceMemoryProperties physical_device_memory_properties, swapchain_t *swapchain)
 {
     Assert(!g_passes.swapchain_set && !g_passes.swapchain_pass.active);
 
-    render_pass_t pass = {
-        .target = {
-            .type = SWAPCHAIN_TARGET,
-        },
-    };
+    render_pass_t *pass = &g_passes.swapchain_pass;
+    MemoryZeroItem(pass);
+    pass->target.type = SWAPCHAIN_TARGET;
 
-    swapchain_target_t *target = &pass.target.swapchain_target;
+    swapchain_target_t *target = &pass->target.swapchain_target;
 
 
     // TODO copy pipelines from existing swapchain pass if it exists
@@ -131,7 +133,7 @@ bool VulkanPass_CreateSwapchainPass(
     }
 
     if (!create_swapchain_render_pass(device, swapchain->format, g_passes.depth_format,
-                                      &pass.vk_render_pass))
+                                      &pass->vk_render_pass))
     {
         Log(ERROR, "failed to create swapchain render pass");
         return false;
@@ -139,19 +141,21 @@ bool VulkanPass_CreateSwapchainPass(
 
     if (!VulkanImage_CreateFramebuffers(device, swapchain->image_views, MAX_FRAMES_IN_FLIGHT,
                                         target->depth_image_view, swapchain->extent,
-                                        pass.vk_render_pass, target->framebuffers))
+                                        pass->vk_render_pass, target->framebuffers))
     {
         Log(ERROR, "failed to create swapchain framebuffers");
         return false;
     }
 
-    pass.handle = SWAPCHAIN_PASS_HANDLE;
-    pass.extent = swapchain->extent;
-    pass.active = true;
+    pass->draw_commands = arena_push_array(arena, draw_command_t, SWAPCHAIN_PASS_MAX_DRAW_COMMANDS);
+    pass->draw_command_capacity = SWAPCHAIN_PASS_MAX_DRAW_COMMANDS;
+
+    pass->handle = SWAPCHAIN_PASS_HANDLE;
+    pass->extent = swapchain->extent;
+    pass->active = true;
 
     // TODO rebuild all pipelines
 
-    g_passes.swapchain_pass = pass;
     g_passes.swapchain_set = true;
 
     Log(INFO, "Created Swapchain pass");
@@ -276,6 +280,8 @@ void VulkanPass_BeginFrame()
 
 void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
 {
+    Assert(g_passes.frame_arena != NULL);
+
     render_pass_t *pass = get_render_pass(draw_command->pass);
     if (!pass)
     {
@@ -283,13 +289,26 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
         return;
     }
 
-    if (pass->draw_command_count >= MAX_DRAW_COMMANDS_PER_PASS)
+    if (pass->draw_command_count >= pass->draw_command_capacity)
     {
         Log(WARNING, "render pass draw command limit reached; command dropped");
         return;
     }
 
-    pass->draw_commands[pass->draw_command_count++] = *draw_command;
+    Assert(draw_command->pipeline < pass->pipeline_count);
+
+    draw_command_t *slot = &pass->draw_commands[pass->draw_command_count++];
+    *slot = *draw_command;
+
+    const pipeline_t *pipeline = &pass->pipelines[draw_command->pipeline];
+    if (pipeline->push_constant_size > 0 && draw_command->push_constant_data)
+    {
+        u8 *push_constant_copy = arena_push_array_no_zero(g_passes.frame_arena, u8,
+                                                          pipeline->push_constant_size);
+        MemoryCopy(push_constant_copy, draw_command->push_constant_data,
+                   pipeline->push_constant_size);
+        slot->push_constant_data = push_constant_copy;
+    }
 }
 
 bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)

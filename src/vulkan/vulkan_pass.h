@@ -6,11 +6,11 @@
 #include "render_types.h"
 #include "vulkan_renderer.h"
 
-bool VulkanPass_Init(VkInstance instance, VkPhysicalDevice physical_device);
+bool VulkanPass_Init(arena_t *frame_arena, VkInstance instance, VkPhysicalDevice physical_device);
 bool VulkanPass_Destroy(VkDevice device);
 bool VulkanPass_CreateSwapchainPass(
-    VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
-    swapchain_t *swapchain);
+    arena_t *arena, VkDevice device,
+    VkPhysicalDeviceMemoryProperties physical_device_memory_properties, swapchain_t *swapchain);
 pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, renderpass_handle_t pass_handle,
                                          const pipeline_config_t *config);
 

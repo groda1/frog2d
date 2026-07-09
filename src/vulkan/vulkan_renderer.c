@@ -137,9 +137,10 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     if (!create_sync_objects())
         goto fail;
 
-    if (!VulkanPass_Init(g_renderer->instance, g_renderer->physical_device))
+    if (!VulkanPass_Init(g_renderer->frame_arena, g_renderer->instance, g_renderer->physical_device))
         goto fail;
-    if (!VulkanPass_CreateSwapchainPass(g_renderer->device, g_renderer->physical_device_memory_prop, &g_renderer->swapchain))
+    if (!VulkanPass_CreateSwapchainPass(g_renderer->global_arena, g_renderer->device,
+                                        g_renderer->physical_device_memory_prop, &g_renderer->swapchain))
         goto fail;
 
 
@@ -187,6 +188,7 @@ bool VulkanRenderer_Destroy()
 void VulkanRenderer_BeginFrame()
 {
     MemoryArena_Clear(g_renderer->frame_arena);
+
     VulkanPass_BeginFrame();
 }
 

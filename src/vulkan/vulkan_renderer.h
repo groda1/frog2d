@@ -33,7 +33,7 @@ struct _draw_command_t
 
     VkBuffer vertex_buffer;
     VkBuffer index_buffer;
-    u32 index_count;
+    u32      index_count;
 
     // TODO instancing, dynamic buffer draws
 };
