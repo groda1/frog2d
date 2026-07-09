@@ -1,7 +1,6 @@
 #include "hash_map.h"
 #include "list.h"
 #include "core.h"
-#include "log.h"
 #include "memory_arena.h"
 
 #include "xxh3.h"
@@ -61,11 +60,11 @@ static inline bool hash_map_insert(hash_map_t *map, hash_map_keyvalue_t keyval, 
     if (!node)
     {
         node = get_new_node(map);
+        SLLInsertFirst(map->buckets[bucket], next, node);
         map->size++;
     }
 
     node->keyvalue = keyval;
-    SLLInsertFirst(map->buckets[bucket], next, node);
 
     return true;
 }
@@ -74,7 +73,6 @@ static inline bool hash_map_get_u64(hash_map_t *map, u64 key, u64 hash, void *ou
 {
     StaticAssert(sizeof(u64) == sizeof(XXH64_hash_t));
     Assert(map);
-    Assert(key);
     Assert(out);
 
     u64 bucket = hash & (map->bucket_count - 1);
@@ -84,7 +82,7 @@ static inline bool hash_map_get_u64(hash_map_t *map, u64 key, u64 hash, void *ou
     {
         if (node->keyvalue.key_u64 == key)
         {
-            MemoryCopy(out, &node->keyvalue.val_ptr, out_size);
+            MemoryCopy(out, &node->keyvalue.val_u64, out_size);
             return true;
         }
         node = node->next;
@@ -96,7 +94,6 @@ static inline bool hash_map_get_u64(hash_map_t *map, u64 key, u64 hash, void *ou
 static inline bool hash_map_remove_u64(hash_map_t *map, u64 key, u64 hash)
 {
     Assert(map);
-    Assert(key);
 
     u64 bucket = hash & (map->bucket_count - 1);
 

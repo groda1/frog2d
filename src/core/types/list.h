@@ -15,10 +15,7 @@
 #define SLLInsertFirst(first, next, val)                                                           \
     do                                                                                             \
     {                                                                                              \
-        if (first)                                                                                 \
-        {                                                                                          \
-            val->next = first;                                                                     \
-        }                                                                                          \
+        val->next = first;                                                                         \
         first = val;                                                                               \
     } while (0)
 
