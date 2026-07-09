@@ -38,6 +38,7 @@ executable('dcfs',
     dependencies: [
         sdl3_dep,
         vulkan_dep,
+        m_dep,
         shader_depend,
         resource_depend,
     ],

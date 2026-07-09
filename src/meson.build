@@ -17,6 +17,7 @@ stb_inc = include_directories('third_party/stb')
 
 sdl3_dep = dependency('sdl3')
 vulkan_dep = dependency('vulkan')
+m_dep = meson.get_compiler('c').find_library('m', required : false)
 
 core_lib = static_library('core', core_sources,
     include_directories : core_inc,
@@ -35,7 +36,7 @@ engine_lib = static_library('engine', engine_sources,
 # no vulkan_dep: the game never sees vulkan types or headers
 game_lib = static_library('game', game_sources,
     include_directories : [core_inc, engine_inc, game_inc],
-    dependencies : [sdl3_dep],
+    dependencies : [sdl3_dep, m_dep],
 )
 
 dcfs_libs = [core_lib, vulkan_lib, engine_lib, game_lib]

@@ -56,7 +56,6 @@ bool VulkanImage_CreateStatic(VkCommandPool command_pool, VkQueue submit_queue, 
                               VkDeviceMemory *image_memory_out)
 {
     Assert(width > 0 && height > 0 && rgba_data != NULL);
-
     bool result = false;
     u64 data_size = (u64)width * (u64)height * 4;
 
@@ -135,45 +134,6 @@ bool VulkanImage_FindDepthFormat(VkFormat *depth_format_out)
                                  VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
                                  depth_format_out);
 }
-
-bool VulkanImage_CreateFramebuffer(VkImageView image_view, VkImageView depth_image_view,
-                                   VkExtent2D extent, VkRenderPass render_pass,
-                                   VkFramebuffer *framebuffer_out)
-{
-    VkImageView attachments[] = {image_view, depth_image_view};
-
-    VkFramebufferCreateInfo framebuffer_create_info = {
-        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-        .renderPass = render_pass,
-        .attachmentCount = ArrayCount(attachments),
-        .pAttachments = attachments,
-        .width = extent.width,
-        .height = extent.height,
-        .layers = 1,
-    };
-
-    if (vkCreateFramebuffer(g_device, &framebuffer_create_info, NULL, framebuffer_out) != VK_SUCCESS)
-        return false;
-
-    return true;
-}
-
-bool VulkanImage_CreateFramebuffers(const VkImageView *color_image_views,
-                                    u32 color_image_view_count, VkImageView depth_image_view,
-                                    VkExtent2D extent, VkRenderPass render_pass,
-                                    VkFramebuffer *framebuffers_out)
-{
-    for (u32 i = 0; i < color_image_view_count; i++)
-    {
-        if (!VulkanImage_CreateFramebuffer(color_image_views[i], depth_image_view, extent,
-                                           render_pass, &framebuffers_out[i]))
-            return false;
-    }
-
-    return true;
-}
-
-
 
 static bool create_image(VkExtent2D extent, u32 mip_levels, VkSampleCountFlags num_samples,
                          VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,

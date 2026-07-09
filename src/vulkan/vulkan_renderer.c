@@ -282,8 +282,6 @@ bool VulkanRenderer_EndFrame()
 
     signal_semaphore = sync_render_finished_semaphore(image_index);
 
-    StaticAssert(ArrayCount(wait_semaphores) == ArrayCount(wait_stages), "one wait stage per wait semaphore");
-
     VkSubmitInfo submit_info = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .waitSemaphoreCount = semaphore_count,
@@ -884,10 +882,17 @@ static bool create_logical_device()
     const char *extensions[] = {"VK_KHR_swapchain"};
     VkPhysicalDeviceFeatures features = {.samplerAnisotropy = true};
 
+    /* rendering without VkRenderPass/VkFramebuffer objects */
+    VkPhysicalDeviceVulkan13Features features13 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .dynamicRendering = true,
+    };
+
     /* bindless textures: one global runtime-sized descriptor array that
        stays bound while texture slots are written at load time */
     VkPhysicalDeviceVulkan12Features features12 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &features13,
         .shaderSampledImageArrayNonUniformIndexing = true,
         .descriptorBindingSampledImageUpdateAfterBind = true,
         .descriptorBindingPartiallyBound = true,

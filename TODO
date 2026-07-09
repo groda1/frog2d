@@ -1,5 +1,4 @@
 
-- textures
 - text rendering
 - image render target
 - console
@@ -11,10 +10,6 @@
 
 vulkan 1.4 features we now have access to but don't use yet:
 
-- dynamic rendering (core 1.3): delete VkRenderPass and VkFramebuffer entirely;
-  begin rendering with vkCmdBeginRendering straight to image views. Swapchain
-  recreation shrinks (no framebuffer rebuild), and the image render target pass
-  becomes much simpler to add. Biggest single cleanup available.
 - synchronization2 (core 1.3): vkQueueSubmit2 + VkSemaphoreSubmitInfo give
   per-semaphore stage masks, and vkCmdPipelineBarrier2 puts stage+access in one
   struct. EndFrame's wait_semaphores/wait_stages arrays and the image layout
@@ -65,11 +60,19 @@ texture path follow-ups:
 
 misc:
 
+- drop the libm dependency: define HANDMADE_MATH_PROVIDE_MATH_FUNCTIONS and
+  supply own HMM_SINF/HMM_COSF/HMM_TANF/HMM_ACOSF/HMM_SQRTF (natural home:
+  core_math). That removes the last libm user, so m_dep in src/meson.build can
+  go too. stb_image already avoids libm (STBI_NO_LINEAR/STBI_NO_HDR keep pow
+  out) — don't lose those defines. sqrtf can be a single sse intrinsic
+  (_mm_sqrt_ss); sin/cos/tan/acos need polynomial approximations, which games
+  want anyway
 - route stb_image allocations through an arena (STBI_MALLOC/STBI_REALLOC/
   STBI_FREE macros, or File_Read + stbi_load_from_memory to at least keep file
   io in the arena)
 - setup_physical_device picks the first 1.4-capable device; still needs the
   queue family / extension / feature / swapchain support checks from the TODO
-  there, now including the Vulkan12Features descriptor indexing bits
+  there, now including the Vulkan12Features descriptor indexing bits and
+  Vulkan13Features dynamicRendering
 - image.c is the only engine file including stb; keep it that way so the
   stb_inc meson include stays engine-private

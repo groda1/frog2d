@@ -22,7 +22,9 @@ struct _swapchain_target_t
     VkImageView     depth_image_view;
     VkDeviceMemory  depth_image_memory;
 
-    VkFramebuffer   framebuffers[MAX_FRAMES_IN_FLIGHT];
+    /* borrowed from the swapchain; destroyed with it, not with the target */
+    VkImage         color_images[MAX_FRAMES_IN_FLIGHT];
+    VkImageView     color_image_views[MAX_FRAMES_IN_FLIGHT];
 };
 
 typedef struct _image_target_t image_target_t;
@@ -56,7 +58,7 @@ struct _render_pass
     renderpass_handle_t handle;
     VkExtent2D      extent;
     render_target_t target;
-    VkRenderPass    vk_render_pass;
+    VkFormat        color_format;
 
     pipeline_t      pipelines[MAX_PIPELINES_PER_PASS];
     u64             pipeline_count;
@@ -81,10 +83,7 @@ struct _vk_passes
 static vk_passes_t s_passes = {};
 
 static render_pass_t *get_render_pass(renderpass_handle_t pass_handle);
-static bool create_swapchain_render_pass(VkFormat color_format, VkFormat depth_format,
-                                          VkRenderPass *render_pass_out);
-static bool create_swapchain_target(swapchain_t *swapchain, VkRenderPass render_pass,
-                                    swapchain_target_t *target);
+static bool create_swapchain_target(swapchain_t *swapchain, swapchain_target_t *target);
 static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index);
 static void destroy_render_pass(render_pass_t *pass);
 static void destroy_swapchain_target(swapchain_target_t *target);
@@ -120,21 +119,14 @@ bool VulkanPass_CreateSwapchainPass(arena_t *arena, swapchain_t *swapchain)
     MemoryZeroItem(pass);
     pass->target.type = SWAPCHAIN_TARGET;
 
-    if (!create_swapchain_render_pass(swapchain->format, s_passes.depth_format,
-                                      &pass->vk_render_pass))
-    {
-        Log(ERROR, "failed to create swapchain render pass");
-        return false;
-    }
-
-    if (!create_swapchain_target(swapchain,
-                                 pass->vk_render_pass, &pass->target.swapchain_target))
+    if (!create_swapchain_target(swapchain, &pass->target.swapchain_target))
         return false;
 
     pass->draw_commands = arena_push_array(arena, draw_command_t, SWAPCHAIN_PASS_MAX_DRAW_COMMANDS);
     pass->draw_command_capacity = SWAPCHAIN_PASS_MAX_DRAW_COMMANDS;
 
     pass->handle = SWAPCHAIN_PASS_HANDLE;
+    pass->color_format = swapchain->format;
     pass->extent = swapchain->extent;
     pass->active = true;
 
@@ -146,8 +138,8 @@ bool VulkanPass_CreateSwapchainPass(arena_t *arena, swapchain_t *swapchain)
 }
 
 /* rebuilds the extent-dependent target resources after a swapchain
-   recreation; the render pass object and the pipelines survive since the
-   swapchain format is unchanged and viewport/scissor are dynamic */
+   recreation; the pipelines survive since the swapchain format is unchanged
+   and viewport/scissor are dynamic */
 bool VulkanPass_RecreateSwapchainPass(swapchain_t *swapchain)
 {
     Assert(s_passes.swapchain_set && s_passes.swapchain_pass.active);
@@ -160,8 +152,7 @@ bool VulkanPass_RecreateSwapchainPass(swapchain_t *swapchain)
     destroy_swapchain_target(target);
     MemoryZeroItem(target);
 
-    if (!create_swapchain_target(swapchain,
-                                 pass->vk_render_pass, target))
+    if (!create_swapchain_target(swapchain, target))
     {
         pass->active = false;
         return false;
@@ -175,8 +166,7 @@ bool VulkanPass_RecreateSwapchainPass(swapchain_t *swapchain)
     return true;
 }
 
-static bool create_swapchain_target(swapchain_t *swapchain, VkRenderPass render_pass,
-                                    swapchain_target_t *target)
+static bool create_swapchain_target(swapchain_t *swapchain, swapchain_target_t *target)
 {
     if (!VulkanImage_CreateDepthResources(swapchain->extent, s_passes.depth_format,
                                           &target->depth_image, &target->depth_image_view,
@@ -186,85 +176,11 @@ static bool create_swapchain_target(swapchain_t *swapchain, VkRenderPass render_
         return false;
     }
 
-    if (!VulkanImage_CreateFramebuffers(swapchain->image_views, MAX_FRAMES_IN_FLIGHT,
-                                        target->depth_image_view, swapchain->extent,
-                                        render_pass, target->framebuffers))
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
-        Log(ERROR, "failed to create swapchain framebuffers");
-        return false;
+        target->color_images[i] = swapchain->images[i];
+        target->color_image_views[i] = swapchain->image_views[i];
     }
-
-    return true;
-}
-
-
-static bool create_swapchain_render_pass(VkFormat color_format, VkFormat depth_format,
-                                          VkRenderPass *render_pass_out)
-{
-    // TODO attachments should be optional
-    VkAttachmentDescription attachments[] = {
-        {
-            .format = color_format,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        },
-        {
-            .format = depth_format,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        },
-    };
-
-    VkAttachmentReference color_attachment_ref = {
-        .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    };
-    VkAttachmentReference depth_attachment_ref = {
-        .attachment = 1,
-        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-
-    VkSubpassDescription subpass = {
-        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment_ref,
-        .pDepthStencilAttachment = &depth_attachment_ref,
-    };
-
-    VkSubpassDependency dependency = {
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-            | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-            | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        .srcAccessMask = 0,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-            | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-    };
-
-    VkRenderPassCreateInfo create_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = ArrayCount(attachments),
-        .pAttachments = attachments,
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
-        .dependencyCount = 1,
-        .pDependencies = &dependency,
-    };
-
-    if (vkCreateRenderPass(g_device, &create_info, NULL /* TODO: Allocator */, render_pass_out) != VK_SUCCESS)
-        return false;
 
     return true;
 }
@@ -286,7 +202,7 @@ pipeline_handle_t VulkanPass_AddPipeline(renderpass_handle_t pass_handle,
     }
 
     pipeline_t *pipeline = &pass->pipelines[pass->pipeline_count];
-    if (!VulkanPipeline_Create(pass->vk_render_pass, config, pipeline))
+    if (!VulkanPipeline_Create(pass->color_format, s_passes.depth_format, config, pipeline))
         return PIPELINE_HANDLE_INVALID;
 
     return (pipeline_handle_t)pass->pipeline_count++;
@@ -378,35 +294,97 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     Assert(pass->active);
     Assert(image_index < MAX_FRAMES_IN_FLIGHT);
 
-    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    VkImage color_image = VK_NULL_HANDLE;
+    VkImageView color_image_view = VK_NULL_HANDLE;
+    VkImage depth_image = VK_NULL_HANDLE;
+    VkImageView depth_image_view = VK_NULL_HANDLE;
     switch (pass->target.type)
     {
     case SWAPCHAIN_TARGET:
-        framebuffer = pass->target.swapchain_target.framebuffers[image_index];
+        color_image = pass->target.swapchain_target.color_images[image_index];
+        color_image_view = pass->target.swapchain_target.color_image_views[image_index];
+        depth_image = pass->target.swapchain_target.depth_image;
+        depth_image_view = pass->target.swapchain_target.depth_image_view;
         break;
     case IMAGE_TARGET:
         // TODO
         return false;
     }
 
-    VkClearValue clear_values[] = {
-        { .color = { .float32 = {0.05f, 0.05f, 0.1f, 1.0f} } },
-        { .depthStencil = { .depth = 1.0f, .stencil = 0 } },
+    VkImageMemoryBarrier attachment_barriers[] = {
+        {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = color_image,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .levelCount = 1,
+                .layerCount = 1,
+            },
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT
+                | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = depth_image,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                .levelCount = 1,
+                .layerCount = 1,
+            },
+        },
     };
 
-    VkRenderPassBeginInfo begin_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = pass->vk_render_pass,
-        .framebuffer = framebuffer,
+    vkCmdPipelineBarrier(command_buffer,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                             | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                             | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                             | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                             | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                         0, 0, NULL, 0, NULL,
+                         ArrayCount(attachment_barriers), attachment_barriers);
+
+    VkRenderingAttachmentInfo color_attachment = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = color_image_view,
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = { .color = { .float32 = {0.05f, 0.05f, 0.1f, 1.0f} } },
+    };
+    VkRenderingAttachmentInfo depth_attachment = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = depth_image_view,
+        .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .clearValue = { .depthStencil = { .depth = 1.0f, .stencil = 0 } },
+    };
+
+    VkRenderingInfo rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .renderArea = {
             .offset = {0, 0},
             .extent = pass->extent,
         },
-        .clearValueCount = ArrayCount(clear_values),
-        .pClearValues = clear_values,
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment,
+        .pDepthAttachment = &depth_attachment,
     };
 
-    vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRendering(command_buffer, &rendering_info);
 
     /* y is flipped to get a gl-style y-up clip space (VK_KHR_maintenance1) */
     VkViewport viewport = {
@@ -465,7 +443,28 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
         vkCmdDrawIndexed(command_buffer, command->index_count, 1, 0, 0, 0);
     }
 
-    vkCmdEndRenderPass(command_buffer);
+    vkCmdEndRendering(command_buffer);
+
+    /* the swapchain image must be in PRESENT_SRC for vkQueuePresentKHR */
+    VkImageMemoryBarrier present_barrier = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = 0,
+        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = color_image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .levelCount = 1,
+            .layerCount = 1,
+        },
+    };
+
+    vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1,
+                         &present_barrier);
 
     return true;
 }
@@ -488,19 +487,13 @@ static void destroy_render_pass(render_pass_t *pass)
         VulkanPipeline_Destroy(&pass->pipelines[i]);
     pass->pipeline_count = 0;
 
-    vkDestroyRenderPass(g_device, pass->vk_render_pass, NULL);
-
     pass->active = false;
 }
 
 static void destroy_swapchain_target(swapchain_target_t *target)
 {
-    /* depth buffer */
+    /* depth buffer; the color images/views are owned by the swapchain */
     vkDestroyImageView(g_device, target->depth_image_view, NULL);
     vkDestroyImage(g_device, target->depth_image, NULL);
     vkFreeMemory(g_device, target->depth_image_memory, NULL);
-
-    /* framebuffers */
-    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        vkDestroyFramebuffer(g_device, target->framebuffers[i], NULL);
 }

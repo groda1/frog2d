@@ -21,13 +21,4 @@ bool VulkanImage_CreateDepthResources(VkExtent2D image_extent, VkFormat depth_fo
 
 bool VulkanImage_FindDepthFormat(VkFormat *depth_format_out);
 
-bool VulkanImage_CreateFramebuffer(VkImageView image_view, VkImageView depth_image_view,
-                                   VkExtent2D extent, VkRenderPass render_pass,
-                                   VkFramebuffer *framebuffer_out);
-
-bool VulkanImage_CreateFramebuffers(const VkImageView *color_image_views,
-                                    u32 color_image_view_count, VkImageView depth_image_view,
-                                    VkExtent2D extent, VkRenderPass render_pass,
-                                    VkFramebuffer *framebuffers_out);
-
 #endif

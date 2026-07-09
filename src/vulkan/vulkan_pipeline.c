@@ -11,8 +11,8 @@ static VkShaderStageFlags uniform_stage_to_vk(uniform_stage_t stage);
 static bool create_shader_module(shader_code_t shader, VkShaderModule *module_out);
 static bool create_descriptor_sets(const pipeline_config_t *config, pipeline_t *pipeline);
 
-bool VulkanPipeline_Create(VkRenderPass render_pass, const pipeline_config_t *config,
-                           pipeline_t *pipeline_out)
+bool VulkanPipeline_Create(VkFormat color_format, VkFormat depth_format,
+                           const pipeline_config_t *config, pipeline_t *pipeline_out)
 {
     Assert(config->vertex_attribute_count <= MAX_VERTEX_ATTRIBUTES);
 
@@ -164,8 +164,18 @@ bool VulkanPipeline_Create(VkRenderPass render_pass, const pipeline_config_t *co
         goto exit;
     }
 
+    /* dynamic rendering: the pipeline binds to attachment formats, not a
+       render pass object */
+    VkPipelineRenderingCreateInfo rendering_create_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &color_format,
+        .depthAttachmentFormat = depth_format,
+    };
+
     VkGraphicsPipelineCreateInfo pipeline_create_info = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &rendering_create_info,
         .stageCount = ArrayCount(shader_stages),
         .pStages = shader_stages,
         .pVertexInputState = &vertex_input_state,
@@ -177,8 +187,6 @@ bool VulkanPipeline_Create(VkRenderPass render_pass, const pipeline_config_t *co
         .pDepthStencilState = &depth_stencil_state,
         .pColorBlendState = &color_blend_state,
         .layout = layout,
-        .renderPass = render_pass,
-        .subpass = 0,
     };
 
     VkPipeline vk_pipeline;
