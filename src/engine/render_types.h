@@ -87,6 +87,7 @@ struct _pipeline_config_t
     uniform_binding_t uniform_bindings[MAX_UNIFORM_BINDINGS];
 
     bool alpha_blending;
+    bool disable_depth_test;
 
     // TODO vertex topology (always triangle list for now)
 };

@@ -21,6 +21,8 @@ bool VulkanBuffer_CreateStaging(const void *data, u64 size, VkBuffer *buffer_out
 buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
                                                  buffer_object_type_t type);
 bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data, u64 size);
+bool VulkanBuffer_ClearObjectData(buffer_object_handle_t handle);
+bool VulkanBuffer_PushObjectData(buffer_object_handle_t handle, const void *data, u64 size);
 
 VkBuffer VulkanBuffer_GetDeviceBuffer(buffer_object_handle_t handle, u32 frame_index);
 u64 VulkanBuffer_GetObjectCapacity(buffer_object_handle_t handle);

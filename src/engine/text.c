@@ -109,6 +109,7 @@ bool Text_Init(arena_t *arena, u64 initial_character_cap)
             },
         },
         .alpha_blending = true,
+        .disable_depth_test = true,
     };
 
     s_text_renderer.pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &text_pipeline_config);
@@ -178,6 +179,7 @@ bool Text_Draw(u32 x, u32 y, string text)
 void Text_BeginFrame()
 {
     s_text_renderer.buf_len = 0;
+    // TODO clear bufferobject and push it durign draw.
 }
 
 void Text_EndFrame()

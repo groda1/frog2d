@@ -112,8 +112,8 @@ bool VulkanPipeline_Create(VkFormat color_format, VkFormat depth_format,
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = true,
-        .depthWriteEnable = true,
+        .depthTestEnable = config->disable_depth_test ? false : true,
+        .depthWriteEnable = config->disable_depth_test ? false : true,
         .depthCompareOp = VK_COMPARE_OP_LESS,
     };
 

@@ -371,11 +371,6 @@ buffer_object_handle_t VulkanRenderer_CreateStorageBuffer(u64 capacity)
     return VulkanBuffer_CreateObject(s_renderer->global_arena, capacity, BO_STORAGE);
 }
 
-bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size)
-{
-    return VulkanBuffer_SetObjectData(handle, data, size);
-}
-
 texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
                                               sampler_handle_t sampler)
 {

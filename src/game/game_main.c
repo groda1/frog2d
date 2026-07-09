@@ -319,7 +319,7 @@ void Game_Tick(void)
 
     Text_SetSize(64);
     Text_Draw(800, 500, string_lit("test 123 !# <foobar>"));
-    Text_Draw(800, 480, string_lit("WTF!!!!"));
+    Text_Draw(800, 440, string_lit("WTF!!!!"));
     Text_SetSize(8);
     Text_Draw(0, 1080 - 16, string_lit("WTF!!!!"));
 

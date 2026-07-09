@@ -224,9 +224,6 @@ buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
 
 bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data, u64 size)
 {
-    // TODO this is braindamaged. the user should write directly to the object cpu_buf.
-    // Maybe add a offset as parameter so t he user can write it directly.
-
     if (handle == BUFFER_OBJECT_HANDLE_INVALID || handle > s_buffers.buffer_object_count)
     {
         Log(ERROR, "invalid buffer object handle %u", handle);
@@ -242,6 +239,24 @@ bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data,
 
     MemoryCopy(object->cpu_buf, data, size);
     object->cpu_buf_len = size;
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        object->dirty[i] = true;
+
+    return true;
+}
+
+bool VulkanBuffer_ClearObjectData(buffer_object_handle_t handle)
+{
+    if (handle == BUFFER_OBJECT_HANDLE_INVALID)
+    {
+        Log(ERROR, "invalid buffer object handle %u", handle);
+        return false;
+    }
+
+    buffer_object_t *object = get_buffer_object(handle);
+
+    object->cpu_buf_len = 0;
 
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         object->dirty[i] = true;
