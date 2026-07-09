@@ -23,8 +23,8 @@ struct _pipeline_t
     VkDescriptorSet         descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 };
 
-bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
-                           const pipeline_config_t *config, pipeline_t *pipeline_out);
-void VulkanPipeline_Destroy(VkDevice device, pipeline_t *pipeline);
+bool VulkanPipeline_Create(VkRenderPass render_pass, const pipeline_config_t *config,
+                           pipeline_t *pipeline_out);
+void VulkanPipeline_Destroy(pipeline_t *pipeline);
 
 #endif

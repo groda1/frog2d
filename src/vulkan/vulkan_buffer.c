@@ -6,6 +6,7 @@
 #include "memory_arena.h"
 #include "render_types.h"
 #include "vulkan_buffer.h"
+#include "vulkan_context.h"
 #include "vulkan_memory.h"
 #include "vulkan_types.h"
 
@@ -36,12 +37,11 @@ struct _buffer_object_t
     // TODO growable BOs?
 };
 
-static bool copy_buffer_sync(VkDevice device, VkCommandPool command_pool, VkQueue submit_queue,
-                             VkBuffer src, VkBuffer dst, VkDeviceSize size);
-static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperties memory_properties,
-                         VkDeviceSize size, VkBufferUsageFlags usage,
-                         VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,
-                         VkDeviceMemory *memory_out);
+static bool copy_buffer_sync(VkCommandPool command_pool, VkQueue submit_queue, VkBuffer src,
+                             VkBuffer dst, VkDeviceSize size);
+static bool create_vulkan_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                                 VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,
+                                 VkDeviceMemory *memory_out);
 
 typedef struct _buffers_t buffers_t;
 struct _buffers_t
@@ -62,13 +62,13 @@ bool VulkanBuffer_Init()
     return true;
 }
 
-void VulkanBuffer_Destroy(VkDevice device)
+void VulkanBuffer_Destroy()
 {
     // Free static buffers
     for (u32 i = 0; i < s_buffers.static_buffer_count; i++)
     {
-        vkDestroyBuffer(device, s_buffers.static_buffers[i], NULL);
-        vkFreeMemory(device, s_buffers.static_buffer_memories[i], NULL);
+        vkDestroyBuffer(g_device, s_buffers.static_buffers[i], NULL);
+        vkFreeMemory(g_device, s_buffers.static_buffer_memories[i], NULL);
     }
 
     // Free buffer objects
@@ -78,18 +78,17 @@ void VulkanBuffer_Destroy(VkDevice device)
 
         for (u32 j = 0; j < MAX_FRAMES_IN_FLIGHT; j++)
         {
-            vkDestroyBuffer(device, object->staging_buffers[j], NULL);
-            vkFreeMemory(device, object->staging_mem[j], NULL);
-            vkDestroyBuffer(device, object->device_buffers[j], NULL);
-            vkFreeMemory(device, object->device_mem[j], NULL);
+            vkDestroyBuffer(g_device, object->staging_buffers[j], NULL);
+            vkFreeMemory(g_device, object->staging_mem[j], NULL);
+            vkDestroyBuffer(g_device, object->device_buffers[j], NULL);
+            vkFreeMemory(g_device, object->device_mem[j], NULL);
         }
     }
 }
 
 
-VkBuffer VulkanBuffer_CreateStatic(VkDevice device, VkPhysicalDeviceMemoryProperties memory_prop,
-                                   VkCommandPool command_pool, VkQueue submit_queue, const u8 *data,
-                                   u64 size, VkBufferUsageFlags usage)
+VkBuffer VulkanBuffer_CreateStatic(VkCommandPool command_pool, VkQueue submit_queue,
+                                   const u8 *data, u64 size, VkBufferUsageFlags usage)
 {
 
     VkBuffer static_buffer = VK_NULL_HANDLE;
@@ -102,32 +101,32 @@ VkBuffer VulkanBuffer_CreateStatic(VkDevice device, VkPhysicalDeviceMemoryProper
 
     VkBuffer staging_buffer;
     VkDeviceMemory staging_memory;
-    if (!create_vulkan_buffer(device, memory_prop, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    if (!create_vulkan_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                              &staging_buffer, &staging_memory))
         return VK_NULL_HANDLE;
 
     void *mapped;
-    if (vkMapMemory(device, staging_memory, 0, size, 0, &mapped) != VK_SUCCESS)
+    if (vkMapMemory(g_device, staging_memory, 0, size, 0, &mapped) != VK_SUCCESS)
     {
         Log(ERROR, "failed to map staging buffer memory");
         goto exit;
     }
     MemoryCopy(mapped, data, size);
-    vkUnmapMemory(device, staging_memory);
+    vkUnmapMemory(g_device, staging_memory);
 
     VkBuffer buffer;
     VkDeviceMemory memory;
-    if (!create_vulkan_buffer(device, memory_prop, size,
+    if (!create_vulkan_buffer(size,
                              VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &buffer, &memory))
         goto exit;
 
-    if (!copy_buffer_sync(device, command_pool, submit_queue, staging_buffer, buffer, size))
+    if (!copy_buffer_sync(command_pool, submit_queue, staging_buffer, buffer, size))
     {
-        vkDestroyBuffer(device, buffer, NULL);
-        vkFreeMemory(device, memory, NULL);
+        vkDestroyBuffer(g_device, buffer, NULL);
+        vkFreeMemory(g_device, memory, NULL);
         goto exit;
     }
 
@@ -141,16 +140,15 @@ VkBuffer VulkanBuffer_CreateStatic(VkDevice device, VkPhysicalDeviceMemoryProper
     static_buffer = buffer;
 
 exit:
-    vkDestroyBuffer(device, staging_buffer, NULL);
-    vkFreeMemory(device, staging_memory, NULL);
+    vkDestroyBuffer(g_device, staging_buffer, NULL);
+    vkFreeMemory(g_device, staging_memory, NULL);
 
 
     return static_buffer;
 }
 
-buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, VkDevice device,
-                                                 VkPhysicalDeviceMemoryProperties memory_prop,
-                                                 u64 capacity, buffer_object_type_t type)
+buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
+                                                 buffer_object_type_t type)
 {
     if (s_buffers.buffer_object_count >= MAX_BUFFER_OBJECT)
     {
@@ -169,13 +167,13 @@ buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, VkDevice device
 
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
-        if (!create_vulkan_buffer(device, memory_prop, capacity, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        if (!create_vulkan_buffer(capacity, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
                                       | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                                   &object->staging_buffers[i], &object->staging_mem[i]))
             return BUFFER_OBJECT_HANDLE_INVALID;
 
-        if (!create_vulkan_buffer(device, memory_prop, capacity,
+        if (!create_vulkan_buffer(capacity,
                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                   &object->device_buffers[i], &object->device_mem[i]))
@@ -228,7 +226,7 @@ u64 VulkanBuffer_GetObjectCapacity(buffer_object_handle_t handle)
     return s_buffers.buffer_objects[handle]->capacity;
 }
 
-bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buffer, u32 image_index)
+bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
 {
     bool transfer_required = false;
 
@@ -261,13 +259,13 @@ bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buf
         VkBuffer device_buffer = bo->device_buffers[image_index];
 
         void *mapped;
-        if (vkMapMemory(device, staging_memory, 0, bo->cpu_buf_len, 0, &mapped) != VK_SUCCESS)
+        if (vkMapMemory(g_device, staging_memory, 0, bo->cpu_buf_len, 0, &mapped) != VK_SUCCESS)
         {
             Log(ERROR, "failed to map staging buffer memory");
             return false;
         }
         MemoryCopy(mapped, bo->cpu_buf, bo->cpu_buf_len);
-        vkUnmapMemory(device, staging_memory);
+        vkUnmapMemory(g_device, staging_memory);
 
         VkBufferCopy copy_region = {
             .srcOffset = 0,
@@ -289,10 +287,9 @@ bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buf
 }
 
 
-static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperties memory_properties,
-                         VkDeviceSize size, VkBufferUsageFlags usage,
-                         VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,
-                         VkDeviceMemory *memory_out)
+static bool create_vulkan_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                                 VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,
+                                 VkDeviceMemory *memory_out)
 {
     VkBufferCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -302,21 +299,21 @@ static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperti
     };
 
     VkBuffer buffer;
-    if (vkCreateBuffer(device, &create_info, NULL, &buffer) != VK_SUCCESS)
+    if (vkCreateBuffer(g_device, &create_info, NULL, &buffer) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create buffer (size=%ju)", size);
         return false;
     }
 
     VkMemoryRequirements memory_requirements;
-    vkGetBufferMemoryRequirements(device, buffer, &memory_requirements);
+    vkGetBufferMemoryRequirements(g_device, buffer, &memory_requirements);
 
     u32 memory_type_index;
-    if (!VulkanMemory_FindMemoryType(memory_properties, memory_requirements.memoryTypeBits,
+    if (!VulkanMemory_FindMemoryType(g_memory_properties, memory_requirements.memoryTypeBits,
                                      memory_flags, &memory_type_index))
     {
         Log(ERROR, "failed to find a suitable buffer memory type");
-        vkDestroyBuffer(device, buffer, NULL);
+        vkDestroyBuffer(g_device, buffer, NULL);
         return false;
     }
 
@@ -327,18 +324,18 @@ static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperti
     };
 
     VkDeviceMemory memory;
-    if (vkAllocateMemory(device, &allocate_info, NULL, &memory) != VK_SUCCESS)
+    if (vkAllocateMemory(g_device, &allocate_info, NULL, &memory) != VK_SUCCESS)
     {
         Log(ERROR, "failed to allocate buffer memory (size=%ju)", memory_requirements.size);
-        vkDestroyBuffer(device, buffer, NULL);
+        vkDestroyBuffer(g_device, buffer, NULL);
         return false;
     }
 
-    if (vkBindBufferMemory(device, buffer, memory, 0) != VK_SUCCESS)
+    if (vkBindBufferMemory(g_device, buffer, memory, 0) != VK_SUCCESS)
     {
         Log(ERROR, "failed to bind buffer memory");
-        vkFreeMemory(device, memory, NULL);
-        vkDestroyBuffer(device, buffer, NULL);
+        vkFreeMemory(g_device, memory, NULL);
+        vkDestroyBuffer(g_device, buffer, NULL);
         return false;
     }
 
@@ -349,8 +346,8 @@ static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperti
 }
 
 /* synchronous copy on the graphics queue */
-static bool copy_buffer_sync(VkDevice device, VkCommandPool command_pool, VkQueue submit_queue,
-                             VkBuffer src, VkBuffer dst, VkDeviceSize size)
+static bool copy_buffer_sync(VkCommandPool command_pool, VkQueue submit_queue, VkBuffer src,
+                             VkBuffer dst, VkDeviceSize size)
 {
     VkCommandBufferAllocateInfo allocate_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -360,7 +357,7 @@ static bool copy_buffer_sync(VkDevice device, VkCommandPool command_pool, VkQueu
     };
 
     VkCommandBuffer command_buffer;
-    if (vkAllocateCommandBuffers(device, &allocate_info, &command_buffer) != VK_SUCCESS)
+    if (vkAllocateCommandBuffers(g_device, &allocate_info, &command_buffer) != VK_SUCCESS)
     {
         Log(ERROR, "failed to allocate copy command buffer");
         return false;
@@ -396,7 +393,7 @@ static bool copy_buffer_sync(VkDevice device, VkCommandPool command_pool, VkQueu
     if (!result)
         Log(ERROR, "failed to record and submit buffer copy");
 
-    vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+    vkFreeCommandBuffers(g_device, command_pool, 1, &command_buffer);
 
     return result;
 }

@@ -4,6 +4,7 @@
 #include "memory_arena.h"
 
 #include "mesh.h"
+#include "mesh_internal.h"
 #include "vulkan_renderer.h"
 
 #define MESH_START_HANDLE 1000
@@ -44,7 +45,7 @@ mesh_t *MeshManager_GetMesh(mesh_handle_t handle)
     return mesh;
 }
 
-mesh_t *MeshManager_LoadMesh(string path, mesh_handle_t *handle_out)
+mesh_handle_t MeshManager_LoadMesh(string path)
 {
     string extension = NullString;
     for (u64 i = path.len; i > 0; i--)
@@ -59,24 +60,23 @@ mesh_t *MeshManager_LoadMesh(string path, mesh_handle_t *handle_out)
     if (extension.len == 0)
     {
         Log(ERROR, "unknown file type: %.*s", (int)path.len, path.str);
-        return NULL;
+        return MESH_INVALID_HANDLE;
     }
 
     if (string_match(extension, string_lit("obj")))
     {
         mesh_t mesh;
         if (!load_obj_mesh(path, &mesh))
-            return NULL;
+            return MESH_INVALID_HANDLE;
 
         mesh_handle_t handle = g_mesh_manager->next_handle++;
-        if (handle_out)
-            *handle_out = handle;
+        insert_mesh(handle, mesh.vertex_buffer, mesh.index_buffer, mesh.index_count);
 
-        return insert_mesh(handle, mesh.vertex_buffer, mesh.index_buffer, mesh.index_count);
+        return handle;
     }
 
     Log(ERROR, "failed to load mesh: %.*s", (int)path.len, path.str);
-    return NULL;
+    return MESH_INVALID_HANDLE;
 }
 
 static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size)

@@ -2,17 +2,16 @@
 #include "log.h"
 
 #include "vulkan_buffer.h"
+#include "vulkan_context.h"
 #include "vulkan_pipeline.h"
 
 static VkFormat vertex_format_to_vk(vertex_format_t format);
 static VkShaderStageFlags uniform_stage_to_vk(uniform_stage_t stage);
-static bool create_shader_module(VkDevice device, shader_code_t shader,
-                                 VkShaderModule *module_out);
-static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *config,
-                                   pipeline_t *pipeline);
+static bool create_shader_module(shader_code_t shader, VkShaderModule *module_out);
+static bool create_descriptor_sets(const pipeline_config_t *config, pipeline_t *pipeline);
 
-bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
-                           const pipeline_config_t *config, pipeline_t *pipeline_out)
+bool VulkanPipeline_Create(VkRenderPass render_pass, const pipeline_config_t *config,
+                           pipeline_t *pipeline_out)
 {
     Assert(config->vertex_attribute_count <= MAX_VERTEX_ATTRIBUTES);
 
@@ -24,11 +23,11 @@ bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
     VkShaderModule fragment_shader = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
 
-    if (!create_shader_module(device, config->vertex_shader, &vertex_shader) ||
-        !create_shader_module(device, config->fragment_shader, &fragment_shader))
+    if (!create_shader_module(config->vertex_shader, &vertex_shader) ||
+        !create_shader_module(config->fragment_shader, &fragment_shader))
         goto exit;
 
-    if (!create_descriptor_sets(device, config, pipeline_out))
+    if (!create_descriptor_sets(config, pipeline_out))
         goto exit;
 
     VkPipelineShaderStageCreateInfo shader_stages[] = {
@@ -151,7 +150,7 @@ bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
         .pSetLayouts = &pipeline_out->descriptor_set_layout,
     };
 
-    if (vkCreatePipelineLayout(device, &layout_create_info, NULL, &layout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(g_device, &layout_create_info, NULL, &layout) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create pipeline layout");
         goto exit;
@@ -175,7 +174,7 @@ bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
     };
 
     VkPipeline vk_pipeline;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, NULL,
+    if (vkCreateGraphicsPipelines(g_device, VK_NULL_HANDLE, 1, &pipeline_create_info, NULL,
                                   &vk_pipeline) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create graphics pipeline");
@@ -195,35 +194,34 @@ exit:
     if (!result)
     {
         if (pipeline_out->descriptor_pool != VK_NULL_HANDLE)
-            vkDestroyDescriptorPool(device, pipeline_out->descriptor_pool, NULL);
+            vkDestroyDescriptorPool(g_device, pipeline_out->descriptor_pool, NULL);
         if (pipeline_out->descriptor_set_layout != VK_NULL_HANDLE)
-            vkDestroyDescriptorSetLayout(device, pipeline_out->descriptor_set_layout, NULL);
+            vkDestroyDescriptorSetLayout(g_device, pipeline_out->descriptor_set_layout, NULL);
     }
     if (layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(device, layout, NULL);
+        vkDestroyPipelineLayout(g_device, layout, NULL);
     if (vertex_shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(device, vertex_shader, NULL);
+        vkDestroyShaderModule(g_device, vertex_shader, NULL);
     if (fragment_shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(device, fragment_shader, NULL);
+        vkDestroyShaderModule(g_device, fragment_shader, NULL);
 
     return result;
 }
 
-void VulkanPipeline_Destroy(VkDevice device, pipeline_t *pipeline)
+void VulkanPipeline_Destroy(pipeline_t *pipeline)
 {
     if (pipeline->descriptor_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(device, pipeline->descriptor_pool, NULL);
+        vkDestroyDescriptorPool(g_device, pipeline->descriptor_pool, NULL);
     if (pipeline->descriptor_set_layout != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(device, pipeline->descriptor_set_layout, NULL);
+        vkDestroyDescriptorSetLayout(g_device, pipeline->descriptor_set_layout, NULL);
 
-    vkDestroyPipeline(device, pipeline->vk_pipeline, NULL);
-    vkDestroyPipelineLayout(device, pipeline->layout, NULL);
+    vkDestroyPipeline(g_device, pipeline->vk_pipeline, NULL);
+    vkDestroyPipelineLayout(g_device, pipeline->layout, NULL);
 
     MemoryZeroItem(pipeline);
 }
 
-static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *config,
-                                   pipeline_t *pipeline)
+static bool create_descriptor_sets(const pipeline_config_t *config, pipeline_t *pipeline)
 {
     if (config->uniform_binding_count == 0)
         return true;
@@ -248,7 +246,7 @@ static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *con
         .pBindings = layout_bindings,
     };
 
-    if (vkCreateDescriptorSetLayout(device, &layout_create_info, NULL,
+    if (vkCreateDescriptorSetLayout(g_device, &layout_create_info, NULL,
                                     &pipeline->descriptor_set_layout) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create descriptor set layout");
@@ -268,7 +266,7 @@ static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *con
         .pPoolSizes = &pool_size,
     };
 
-    if (vkCreateDescriptorPool(device, &pool_create_info, NULL,
+    if (vkCreateDescriptorPool(g_device, &pool_create_info, NULL,
                                &pipeline->descriptor_pool) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create descriptor pool");
@@ -286,7 +284,7 @@ static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *con
         .pSetLayouts = set_layouts,
     };
 
-    if (vkAllocateDescriptorSets(device, &allocate_info, pipeline->descriptor_sets) != VK_SUCCESS)
+    if (vkAllocateDescriptorSets(g_device, &allocate_info, pipeline->descriptor_sets) != VK_SUCCESS)
     {
         Log(ERROR, "failed to allocate descriptor sets");
         return false;
@@ -317,7 +315,7 @@ static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *con
             };
         }
 
-        vkUpdateDescriptorSets(device, config->uniform_binding_count, writes, 0, NULL);
+        vkUpdateDescriptorSets(g_device, config->uniform_binding_count, writes, 0, NULL);
     }
 
     return true;
@@ -353,8 +351,7 @@ static VkFormat vertex_format_to_vk(vertex_format_t format)
     return VK_FORMAT_UNDEFINED;
 }
 
-static bool create_shader_module(VkDevice device, shader_code_t shader,
-                                 VkShaderModule *module_out)
+static bool create_shader_module(shader_code_t shader, VkShaderModule *module_out)
 {
     if (shader.code == NULL || shader.size == 0)
     {
@@ -368,7 +365,7 @@ static bool create_shader_module(VkDevice device, shader_code_t shader,
         .pCode = (const u32 *)shader.code,
     };
 
-    if (vkCreateShaderModule(device, &create_info, NULL, module_out) != VK_SUCCESS)
+    if (vkCreateShaderModule(g_device, &create_info, NULL, module_out) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create shader module");
         return false;

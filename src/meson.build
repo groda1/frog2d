@@ -41,9 +41,10 @@ engine_lib = static_library('engine', engine_sources,
     dependencies : [sdl3_dep, vulkan_dep],
 )
 
+# no vulkan_dep: the game never sees vulkan types or headers
 game_lib = static_library('game', game_sources,
     include_directories : [core_inc, engine_inc, game_inc],
-    dependencies : [sdl3_dep, vulkan_dep],
+    dependencies : [sdl3_dep],
 )
 
 dcfs_libs = [core_lib, vulkan_lib, engine_lib, game_lib]

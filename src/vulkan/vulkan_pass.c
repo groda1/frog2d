@@ -3,6 +3,7 @@
 #include "core.h"
 #include "log.h"
 #include "render_types.h"
+#include "vulkan_context.h"
 #include "vulkan_pass.h"
 #include "vulkan_image.h"
 #include "vulkan_pipeline.h"
@@ -76,60 +77,56 @@ struct _vk_passes
     arena_t             *frame_arena;
 };
 
-static vk_passes_t g_passes = {};
+static vk_passes_t s_passes = {};
 
 static render_pass_t *get_render_pass(renderpass_handle_t pass_handle);
-static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
-                                         VkFormat depth_format, VkRenderPass *render_pass_out);
-static bool create_swapchain_target(VkDevice device,
-                                    VkPhysicalDeviceMemoryProperties memory_properties,
-                                    swapchain_t *swapchain, VkRenderPass render_pass,
+static bool create_swapchain_render_pass(VkFormat color_format, VkFormat depth_format,
+                                          VkRenderPass *render_pass_out);
+static bool create_swapchain_target(swapchain_t *swapchain, VkRenderPass render_pass,
                                     swapchain_target_t *target);
 static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index);
-static void destroy_render_pass(VkDevice device, render_pass_t *pass);
-static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target);
+static void destroy_render_pass(render_pass_t *pass);
+static void destroy_swapchain_target(swapchain_target_t *target);
 
-bool VulkanPass_Init(arena_t *frame_arena, VkInstance instance, VkPhysicalDevice physical_device)
+bool VulkanPass_Init(arena_t *frame_arena)
 {
-    if (!VulkanImage_FindDepthFormat(instance, physical_device, &g_passes.depth_format))
+    if (!VulkanImage_FindDepthFormat(&s_passes.depth_format))
     {
         Log(ERROR, "failed to find a supported depth format");
         return false;
     }
 
-    g_passes.frame_arena = frame_arena;
+    s_passes.frame_arena = frame_arena;
 
     return true;
 }
 
-bool VulkanPass_Destroy(VkDevice device)
+bool VulkanPass_Destroy()
 {
-    if (g_passes.swapchain_set && g_passes.swapchain_pass.active)
-        destroy_render_pass(device, &g_passes.swapchain_pass);
+    if (s_passes.swapchain_set && s_passes.swapchain_pass.active)
+        destroy_render_pass(&s_passes.swapchain_pass);
 
-    g_passes.swapchain_set = false;
+    s_passes.swapchain_set = false;
 
     return true;
 }
 
-bool VulkanPass_CreateSwapchainPass(
-    arena_t *arena, VkDevice device,
-    VkPhysicalDeviceMemoryProperties physical_device_memory_properties, swapchain_t *swapchain)
+bool VulkanPass_CreateSwapchainPass(arena_t *arena, swapchain_t *swapchain)
 {
-    Assert(!g_passes.swapchain_set && !g_passes.swapchain_pass.active);
+    Assert(!s_passes.swapchain_set && !s_passes.swapchain_pass.active);
 
-    render_pass_t *pass = &g_passes.swapchain_pass;
+    render_pass_t *pass = &s_passes.swapchain_pass;
     MemoryZeroItem(pass);
     pass->target.type = SWAPCHAIN_TARGET;
 
-    if (!create_swapchain_render_pass(device, swapchain->format, g_passes.depth_format,
+    if (!create_swapchain_render_pass(swapchain->format, s_passes.depth_format,
                                       &pass->vk_render_pass))
     {
         Log(ERROR, "failed to create swapchain render pass");
         return false;
     }
 
-    if (!create_swapchain_target(device, physical_device_memory_properties, swapchain,
+    if (!create_swapchain_target(swapchain,
                                  pass->vk_render_pass, &pass->target.swapchain_target))
         return false;
 
@@ -140,7 +137,7 @@ bool VulkanPass_CreateSwapchainPass(
     pass->extent = swapchain->extent;
     pass->active = true;
 
-    g_passes.swapchain_set = true;
+    s_passes.swapchain_set = true;
 
     Log(INFO, "Created Swapchain pass");
 
@@ -150,21 +147,19 @@ bool VulkanPass_CreateSwapchainPass(
 /* rebuilds the extent-dependent target resources after a swapchain
    recreation; the render pass object and the pipelines survive since the
    swapchain format is unchanged and viewport/scissor are dynamic */
-bool VulkanPass_RecreateSwapchainPass(
-    VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
-    swapchain_t *swapchain)
+bool VulkanPass_RecreateSwapchainPass(swapchain_t *swapchain)
 {
-    Assert(g_passes.swapchain_set && g_passes.swapchain_pass.active);
+    Assert(s_passes.swapchain_set && s_passes.swapchain_pass.active);
 
-    render_pass_t *pass = &g_passes.swapchain_pass;
+    render_pass_t *pass = &s_passes.swapchain_pass;
     Assert(pass->target.type == SWAPCHAIN_TARGET);
 
     swapchain_target_t *target = &pass->target.swapchain_target;
 
-    destroy_swapchain_target(device, target);
+    destroy_swapchain_target(target);
     MemoryZeroItem(target);
 
-    if (!create_swapchain_target(device, physical_device_memory_properties, swapchain,
+    if (!create_swapchain_target(swapchain,
                                  pass->vk_render_pass, target))
     {
         pass->active = false;
@@ -179,20 +174,18 @@ bool VulkanPass_RecreateSwapchainPass(
     return true;
 }
 
-static bool create_swapchain_target(VkDevice device,
-                                    VkPhysicalDeviceMemoryProperties memory_properties,
-                                    swapchain_t *swapchain, VkRenderPass render_pass,
+static bool create_swapchain_target(swapchain_t *swapchain, VkRenderPass render_pass,
                                     swapchain_target_t *target)
 {
-    if (!VulkanImage_CreateDepthResources(device, swapchain->extent, memory_properties,
-                                          g_passes.depth_format, &target->depth_image,
-                                          &target->depth_image_view, &target->depth_image_memory))
+    if (!VulkanImage_CreateDepthResources(swapchain->extent, s_passes.depth_format,
+                                          &target->depth_image, &target->depth_image_view,
+                                          &target->depth_image_memory))
     {
         Log(ERROR, "failed to create depth resources for swapchain pass");
         return false;
     }
 
-    if (!VulkanImage_CreateFramebuffers(device, swapchain->image_views, MAX_FRAMES_IN_FLIGHT,
+    if (!VulkanImage_CreateFramebuffers(swapchain->image_views, MAX_FRAMES_IN_FLIGHT,
                                         target->depth_image_view, swapchain->extent,
                                         render_pass, target->framebuffers))
     {
@@ -204,8 +197,8 @@ static bool create_swapchain_target(VkDevice device,
 }
 
 
-static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
-                                         VkFormat depth_format, VkRenderPass *render_pass_out)
+static bool create_swapchain_render_pass(VkFormat color_format, VkFormat depth_format,
+                                          VkRenderPass *render_pass_out)
 {
     // TODO attachments should be optional
     VkAttachmentDescription attachments[] = {
@@ -269,13 +262,13 @@ static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
         .pDependencies = &dependency,
     };
 
-    if (vkCreateRenderPass(device, &create_info, NULL /* TODO: Allocator */, render_pass_out) != VK_SUCCESS)
+    if (vkCreateRenderPass(g_device, &create_info, NULL /* TODO: Allocator */, render_pass_out) != VK_SUCCESS)
         return false;
 
     return true;
 }
 
-pipeline_handle_t VulkanPass_AddPipeline(VkDevice device, renderpass_handle_t pass_handle,
+pipeline_handle_t VulkanPass_AddPipeline(renderpass_handle_t pass_handle,
                                          const pipeline_config_t *config)
 {
     render_pass_t *pass = get_render_pass(pass_handle);
@@ -292,7 +285,7 @@ pipeline_handle_t VulkanPass_AddPipeline(VkDevice device, renderpass_handle_t pa
     }
 
     pipeline_t *pipeline = &pass->pipelines[pass->pipeline_count];
-    if (!VulkanPipeline_Create(device, pass->vk_render_pass, config, pipeline))
+    if (!VulkanPipeline_Create(pass->vk_render_pass, config, pipeline))
         return PIPELINE_HANDLE_INVALID;
 
     return (pipeline_handle_t)pass->pipeline_count++;
@@ -300,9 +293,9 @@ pipeline_handle_t VulkanPass_AddPipeline(VkDevice device, renderpass_handle_t pa
 
 static render_pass_t *get_render_pass(renderpass_handle_t pass_handle)
 {
-    if (pass_handle == SWAPCHAIN_PASS_HANDLE && g_passes.swapchain_set &&
-        g_passes.swapchain_pass.active)
-        return &g_passes.swapchain_pass;
+    if (pass_handle == SWAPCHAIN_PASS_HANDLE && s_passes.swapchain_set &&
+        s_passes.swapchain_pass.active)
+        return &s_passes.swapchain_pass;
 
     // TODO image target passes
 
@@ -311,15 +304,15 @@ static render_pass_t *get_render_pass(renderpass_handle_t pass_handle)
 
 void VulkanPass_BeginFrame()
 {
-    if (g_passes.swapchain_set && g_passes.swapchain_pass.active)
-        g_passes.swapchain_pass.draw_command_count = 0;
+    if (s_passes.swapchain_set && s_passes.swapchain_pass.active)
+        s_passes.swapchain_pass.draw_command_count = 0;
 
     // TODO image target passes
 }
 
 void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
 {
-    Assert(g_passes.frame_arena != NULL);
+    Assert(s_passes.frame_arena != NULL);
 
     render_pass_t *pass = get_render_pass(draw_command->pass);
     if (!pass)
@@ -342,7 +335,7 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
     const pipeline_t *pipeline = &pass->pipelines[draw_command->pipeline];
     if (pipeline->push_constant_size > 0 && draw_command->push_constant_data)
     {
-        u8 *push_constant_copy = arena_push_array_no_zero(g_passes.frame_arena, u8,
+        u8 *push_constant_copy = arena_push_array_no_zero(s_passes.frame_arena, u8,
                                                           pipeline->push_constant_size);
         MemoryCopy(push_constant_copy, draw_command->push_constant_data,
                    pipeline->push_constant_size);
@@ -353,7 +346,7 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
 bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
 {
     // TODO bake image target passes first, in pass order
-    Assert(g_passes.swapchain_set && g_passes.swapchain_pass.active);
+    Assert(s_passes.swapchain_set && s_passes.swapchain_pass.active);
 
     VkCommandBufferBeginInfo begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -367,7 +360,7 @@ bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_inde
         return false;
     }
 
-    if (!bake_command_buffer(&g_passes.swapchain_pass, command_buffer, image_index))
+    if (!bake_command_buffer(&s_passes.swapchain_pass, command_buffer, image_index))
         return false;
 
     if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
@@ -472,14 +465,14 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     return true;
 }
 
-static void destroy_render_pass(VkDevice device, render_pass_t *pass)
+static void destroy_render_pass(render_pass_t *pass)
 {
     Assert(pass->active);
 
     switch (pass->target.type)
     {
     case SWAPCHAIN_TARGET:
-        destroy_swapchain_target(device, &pass->target.swapchain_target);
+        destroy_swapchain_target(&pass->target.swapchain_target);
         break;
     case IMAGE_TARGET:
         // TODO
@@ -487,22 +480,22 @@ static void destroy_render_pass(VkDevice device, render_pass_t *pass)
     }
 
     for (u64 i = 0; i < pass->pipeline_count; i++)
-        VulkanPipeline_Destroy(device, &pass->pipelines[i]);
+        VulkanPipeline_Destroy(&pass->pipelines[i]);
     pass->pipeline_count = 0;
 
-    vkDestroyRenderPass(device, pass->vk_render_pass, NULL);
+    vkDestroyRenderPass(g_device, pass->vk_render_pass, NULL);
 
     pass->active = false;
 }
 
-static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target)
+static void destroy_swapchain_target(swapchain_target_t *target)
 {
     /* depth buffer */
-    vkDestroyImageView(device, target->depth_image_view, NULL);
-    vkDestroyImage(device, target->depth_image, NULL);
-    vkFreeMemory(device, target->depth_image_memory, NULL);
+    vkDestroyImageView(g_device, target->depth_image_view, NULL);
+    vkDestroyImage(g_device, target->depth_image, NULL);
+    vkFreeMemory(g_device, target->depth_image_memory, NULL);
 
     /* framebuffers */
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        vkDestroyFramebuffer(device, target->framebuffers[i], NULL);
+        vkDestroyFramebuffer(g_device, target->framebuffers[i], NULL);
 }

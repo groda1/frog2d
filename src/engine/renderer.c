@@ -3,6 +3,7 @@
 #include <SDL3/SDL_filesystem.h>
 
 #include "file.h"
+#include "mesh_internal.h"
 #include "renderer.h"
 
 #include "vulkan_pass.h"
@@ -59,8 +60,10 @@ bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u
 }
 
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
-                       const void *push_constant_data, const mesh_t *mesh)
+                       const void *push_constant_data, mesh_handle_t mesh_handle)
 {
+    const mesh_t *mesh = MeshManager_GetMesh(mesh_handle);
+
     draw_command_t draw_command = {
         .pass = pass_handle,
         .pipeline = pipeline,

@@ -34,14 +34,14 @@ typedef struct
 
 typedef struct
 {
-    mesh_t mesh;
+    mesh_handle_t mesh;
     vec3 position;
     quat orientation;
     f32 wobble;
     pipeline_handle_t pipeline;
 
     /* 3d cube rendered behind the triangle */
-    mesh_t cube_mesh;
+    mesh_handle_t cube_mesh;
     quat cube_orientation;
     pipeline_handle_t cube_pipeline;
     buffer_object_handle_t vp_uniform;
@@ -54,7 +54,7 @@ bool Game_Init(SDL_Window *window)
     if (!Engine_Init(window))
         return false;
 
-    g_game.mesh = *MeshManager_GetMesh(PREDEFINED_MESH_COLORED_TRIANGLE);
+    g_game.mesh = PREDEFINED_MESH_COLORED_TRIANGLE;
 
     window_extent_t extent = Renderer_GetWindowExtent();
     g_game.position = V3((f32)extent.width / 2.0f, (f32)extent.height / 2.0f, 0.0f);
@@ -89,7 +89,7 @@ bool Game_Init(SDL_Window *window)
     }
 
     /* cube */
-    g_game.cube_mesh = *MeshManager_GetMesh(PREDEFINED_MESH_NORMALED_CUBE);
+    g_game.cube_mesh = PREDEFINED_MESH_NORMALED_CUBE;
     g_game.cube_orientation = HMM_Q(0.0f, 0.0f, 0.0f, 1.0f);
 
     g_game.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
@@ -181,8 +181,7 @@ void Game_Tick(void)
     push_constant.transform = HMM_MulM4(projection, model);
 
 
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.pipeline, &push_constant,
-                      &g_game.mesh);
+    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.pipeline, &push_constant, g_game.mesh);
 
     /* update cube */
     quat cube_rotation = HMM_MulQ(
@@ -203,12 +202,12 @@ void Game_Tick(void)
     cube_push_constant.transform = HMM_MulM4(HMM_Translate(V3(-1.5f, 0.0f, -3.0f)), HMM_QToM4(g_game.cube_orientation));
     cube_push_constant.color = V4(0.9f, 0.5f, 0.2f, 1.0f);
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.cube_pipeline, &cube_push_constant,
-                      &g_game.cube_mesh);
+                      g_game.cube_mesh);
 
     cube_push_constant.transform = HMM_MulM4(HMM_Translate(V3(1.5f, 0.0f, -3.0f)), HMM_QToM4(g_game.cube_orientation));
     cube_push_constant.color = V4(0.5f, 0.9f, 0.2f, 1.0f);
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.cube_pipeline, &cube_push_constant,
-                      &g_game.cube_mesh);
+                      g_game.cube_mesh);
 
     Engine_EndFrame();
 }

@@ -1,12 +1,12 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include <vulkan/vulkan_core.h>
-
 #include "core.h"
 #include "core_math.h"
 #include "core_string.h"
 #include "memory_arena.h"
+
+#define MESH_INVALID_HANDLE U32_MAX
 
 typedef u32 mesh_handle_t;
 
@@ -32,7 +32,6 @@ typedef struct _simple_vertex_t simple_vertex_t;
 typedef struct _normal_vertex_t normal_vertex_t;
 typedef struct _colored_vertex_t colored_vertex_t;
 typedef struct _textured_vertex_t textured_vertex_t;
-typedef struct _mesh_t mesh_t;
 
 struct _simple_vertex_t
 {
@@ -57,16 +56,8 @@ struct _textured_vertex_t
     vec2 texture_coord;
 };
 
-struct _mesh_t
-{
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
-    u32 index_count;
-};
-
 bool MeshManager_Init(arena_t *arena);
 
-mesh_t *MeshManager_GetMesh(mesh_handle_t handle);
-mesh_t *MeshManager_LoadMesh(string path, mesh_handle_t *handle_out);
+mesh_handle_t MeshManager_LoadMesh(string path);
 
 #endif

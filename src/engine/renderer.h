@@ -22,7 +22,9 @@ buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t st
    the duration of the call */
 bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size);
 
+/* push constant data is copied; the pointer only needs to stay valid for the
+   duration of the call */
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
-                       const void *push_constant_data, const mesh_t *mesh);
+                       const void *push_constant_data, mesh_handle_t mesh);
 
 #endif
