@@ -277,12 +277,14 @@ void Game_Tick(void)
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.pipeline, &push_constant, g_game.mesh);
 
     /* update cube */
-    quat cube_rotation = HMM_MulQ(
-        HMM_QFromAxisAngle_RH(V3(0.0f, 1.0f, 0.0f),
-                              HMM_AngleDeg(delta_time * CUBE_ROT_SPEED_DEG_PER_S)),
-        HMM_QFromAxisAngle_RH(V3(1.0f, 0.0f, 0.0f),
-                              HMM_AngleDeg(delta_time * CUBE_ROT_SPEED_DEG_PER_S * 0.7f)));
-    g_game.cube_orientation = HMM_MulQ(g_game.cube_orientation, cube_rotation);
+    g_game.cube_orientation =
+        HMM_MulQ(g_game.cube_orientation,
+                 HMM_QFromAxisAngle_RH(V3(0.0f, 1.0f, 0.0f), HMM_AngleDeg(-delta_time * CUBE_ROT_SPEED_DEG_PER_S * 0.5)));
+    g_game.cube_orientation =
+        HMM_MulQ(g_game.cube_orientation,
+                HMM_QFromAxisAngle_RH(V3(1.0f, 0.0f, 0.0f), HMM_AngleDeg(delta_time * CUBE_ROT_SPEED_DEG_PER_S * 0.5)));
+
+    //g_game.cube_orientation = HMM_MulQ(g_game.cube_orientation, cube_rotation);
 
     view_projection_t vp = {
         .view = HMM_M4D(1.0f),

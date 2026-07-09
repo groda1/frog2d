@@ -269,7 +269,6 @@ void Draw_EndFrame()
 {
     if (s_draw.colored_sbo_len)
     {
-        Log(DEBUG, "draw colored quad");
         color_push_constant_t color_push_constant = {};
         Renderer_DrawMeshInstanced(SWAPCHAIN_PASS_HANDLE,
             s_draw.colored_pipeline,
