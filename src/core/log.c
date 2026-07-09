@@ -17,8 +17,6 @@ void Log_Init(arena_t *arena)
     l->entries = arena_push_array(arena, log_entry_t, DEFAULT_CAPACITY);
 
 
-
-
     logger = l;
 
 }

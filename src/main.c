@@ -24,6 +24,8 @@ int main(int argc, char **argv)
 
     arena_t *main_arena = MemoryArena_Create("main-arena");
 
+    MemoryArena_Print(main_arena);
+
     Log_Init(main_arena);
 
     if (!frog2d_sdl_init())
@@ -67,5 +69,8 @@ int main(int argc, char **argv)
     SDL_Quit();
 
     MemoryArena_Print(main_arena);
+
+    MemoryArena_Destroy(main_arena);
+
     return EXIT_SUCCESS;
 }

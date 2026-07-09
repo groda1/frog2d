@@ -140,11 +140,45 @@ void *MemoryArena_Push(arena_t *arena, u64 size, u64 align)
     return ret;
 }
 
-//void MemoryArena_Pop(arena_t *arena, u64 size);
-//u64 MemoryArena_Pos(arena_t *arena);
-//void MemoryArena_PopTo(arena_t *arena, u64 pos);
+void MemoryArena_Pop(arena_t *arena, u64 size)
+{
+    u64 pos = MemoryArena_Pos(arena);
+    u64 pos_new = pos;
 
-//void MemoryArena_Clear(arena_t *arena);
+    if (pos > size)
+    {
+        pos_new = pos - size;
+    }
+    MemoryArena_PopTo(arena, pos_new);
+}
+
+void MemoryArena_PopTo(arena_t *arena, u64 pos)
+{
+    u64 big_pos = ClampBot(ARENA_HEADER_SIZE, pos);
+    arena_t *current = arena->current;
+
+    for (arena_t *prev = NULL; current->base_pos >= big_pos; current = prev)
+    {
+        prev = current->prev;
+        os_release(current, current->reserved);
+    }
+    arena->current = current;
+
+    u64 new_pos = big_pos - current->base_pos;
+    current->pos = new_pos;
+}
+
+u64 MemoryArena_Pos(arena_t *arena)
+{
+    arena_t *current = arena->current;
+    u64 pos = current->base_pos + current->pos;
+    return pos;
+}
+
+void MemoryArena_Clear(arena_t *arena)
+{
+    MemoryArena_PopTo(arena, 0);
+}
 
 #include <stdio.h>
 void MemoryArena_Print(arena_t *arena)
@@ -166,4 +200,17 @@ void MemoryArena_Print(arena_t *arena)
         
         current = current->prev;
     }
+}
+
+scratch_t Scratch_Begin(arena_t *arena)
+{
+    return (scratch_t){
+        .arena = arena,
+        .pos = MemoryArena_Pos(arena),
+    };
+}
+
+void Scratch_End(scratch_t scratch)
+{
+    MemoryArena_PopTo(scratch.arena, scratch.pos);
 }

@@ -6,14 +6,13 @@
 
 #define ARENA_HEADER_SIZE 128
 
+#define __push_array_no_zero_aligned(a, T, c, align) (T *)MemoryArena_Push((a), sizeof(T)*(c), (align))
+#define __push_array_aligned(a, T, c, align) (T *)MemoryZero(__push_array_no_zero_aligned(a, T, c, align), sizeof(T)*(c))
 
-// 
-// #define push_array_no_zero(a, T, c) push_array_no_zero_aligned(a, T, c, Max(8, AlignOf(T)))
-
-#define push_array_no_zero_aligned(a, T, c, align) (T *)MemoryArena_Push((a), sizeof(T)*(c), (align))
-#define push_array_aligned(a, T, c, align) (T *)MemoryZero(push_array_no_zero_aligned(a, T, c, align), sizeof(T)*(c))
-#define arena_push_array(a, T, c) push_array_aligned(a, T, c, Max(8, AlignOf(T)))
+#define arena_push_array(a, T, c) __push_array_aligned(a, T, c, Max(8, AlignOf(T)))
+#define arena_push_array_no_zero(a, T, c) __push_array_no_zero_aligned(a, T, c, Max(8, AlignOf(T)))
 #define arena_push(a, T) arena_push_array(a, T, 1)
+#define arena_push_no_zero(a, T) arena_push_array_no_zero(a, T, 1)
 
 #define MEMORY_ARENA_DEFAULT_RESERVE_SIZE MB(64)
 #define MEMORY_ARENA_DEFAULT_COMMIT_SIZE KB(64)
@@ -38,6 +37,12 @@ struct arena_t
     u64 reserved;
 };
 
+typedef struct memory_arena
+{
+    arena_t *arena;
+    u64 pos;
+} scratch_t;
+
 StaticAssert(sizeof(arena_t) <= ARENA_HEADER_SIZE, "arena_t larger than arena header size");
 
 arena_t *MemoryArena_Create(const char *name);
@@ -48,10 +53,12 @@ void *MemoryArena_Push(arena_t *arena, u64 size, u64 align);
 void MemoryArena_Pop(arena_t *arena, u64 size);
 u64 MemoryArena_Pos(arena_t *arena);
 void MemoryArena_PopTo(arena_t *arena, u64 pos);
-
 void MemoryArena_Clear(arena_t *arena);
 
 void MemoryArena_Print(arena_t *arena);
+
+scratch_t Scratch_Begin(arena_t *arena);
+void Scratch_End(scratch_t scratch);
 
 
 #endif
