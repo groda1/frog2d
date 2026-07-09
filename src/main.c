@@ -7,6 +7,7 @@
 
 #include "log.h"
 #include "vulkan_renderer.h"
+#include "engine_main.h"
 
 
 #define DEFAULT_WIDTH 1920
@@ -61,8 +62,16 @@ int main(int argc, char **argv)
                 {
                     m_running = false;
                 }
+
+                Engine_HandleKeyDown(event.key.key);
+            }
+            else if (event.type == SDL_EVENT_KEY_UP)
+            {
+                Engine_HandleKeyUp(event.key.key);
             }
         }
+
+        Engine_Tick();
     }
 
     VulkanRenderer_Destroy();

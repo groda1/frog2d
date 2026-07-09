@@ -15,12 +15,16 @@ endif
 
 core_sources = []
 vulkan_sources = []
+engine_sources = []
+game_sources = []
 sources = []
 
 subdir('src')
 
 sources += core_sources
 sources += vulkan_sources
+sources += engine_sources
+sources += game_sources
 
 glsllang = find_program('glslangValidator')
 shaders = [
