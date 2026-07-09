@@ -6,9 +6,8 @@
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_error.h>
 
-#include "frog2d_core.h"
-
-
+#include "core.h"
+#include "memory_arena.h"
 
 static bool frog2d_sdl_init()
 {
@@ -37,6 +36,8 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    //SDL_Vulkan_CreateSurface()
+
     SDL_Event event;
     bool m_running = true;
     while (m_running)
@@ -57,10 +58,19 @@ int main(int argc, char **argv)
         }
     }
 
-
     SDL_DestroyWindow(window);
     SDL_Quit();
 
+    arena_t *main_arena = MemoryArena_Create("main-arena");
+
+
+    u64 *ptr = (u64*)MemoryArena_Push(main_arena, 32, 8);
+
+    *ptr = 1337;
+
+    printf("kek %ju\n", *ptr);
+
+    
 
     return EXIT_SUCCESS;
 }
