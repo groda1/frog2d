@@ -5,7 +5,7 @@
 #include "log.h"
 
 #include "vulkan_renderer.h"
-
+#include "vulkan_allocator.h"
 
 #define APPLICATION_NAME    "todo"
 #define APPLICATION_VERSION VK_MAKE_VERSION(0, 0, 1)
@@ -24,12 +24,14 @@ struct _queue_families_t
     u32 transfer_family_index;
     u32 compute_family_index;
     u32 present_family_index;
-    
-    // TODO this is pointless. Replace with actual queue instead
     u32 graphics_queue_index;
     u32 transfer_queue_index;
     u32 compute_queue_index;
     u32 present_queue_index;
+
+    VkQueue graphics_queue;
+    VkQueue transfer_queue;
+    VkQueue present_queue;
 };
 
 struct _vk_renderer_t
@@ -37,11 +39,13 @@ struct _vk_renderer_t
     arena_t *arena;
 
     /* data */
-    VkInstance instance;
-    VkSurfaceKHR surface;
-    VkPhysicalDevice physical_device;
-    VkDevice device;
-
+    VkAllocationCallbacks  *allocator;
+    VkInstance              instance;
+    VkSurfaceKHR            surface;
+    VkPhysicalDevice        physical_device;
+    VkDevice                device;
+    VkCommandPool           command_pool;
+    
     queue_families_t queue_families;
 };
 
@@ -69,6 +73,10 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 
     log_instance_layer_properties();
 
+   if (!VulkanAllocator_Init())
+        goto _fail;
+    renderer->allocator = VulkanAllocator_Get();
+
     if (!create_instance())
         goto _fail;
     if (!create_surface(window))
@@ -91,9 +99,10 @@ bool VulkanRenderer_Destroy()
 {
     if (renderer)
     {
-        vkDestroyDevice(renderer->device, NULL);
-        vkDestroySurfaceKHR(renderer->instance, renderer->surface, NULL);
-        vkDestroyInstance(renderer->instance, NULL);
+        vkDestroyCommandPool(renderer->device, renderer->command_pool, renderer->allocator);
+        vkDestroyDevice(renderer->device, renderer->allocator);
+        vkDestroySurfaceKHR(renderer->instance, renderer->surface, renderer->allocator);
+        vkDestroyInstance(renderer->instance, renderer->allocator);
     }
 
     return true;
@@ -153,7 +162,7 @@ static bool create_instance()
 #endif
 
 
-    if (vkCreateInstance(&create_info, NULL, &renderer->instance) != VK_SUCCESS)
+    if (vkCreateInstance(&create_info, renderer->allocator, &renderer->instance) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create vulkan instance");
         return false;
@@ -165,7 +174,7 @@ static bool create_instance()
 
 static bool create_surface(SDL_Window *window)
 {
-    if (!SDL_Vulkan_CreateSurface(window, renderer->instance, NULL, &renderer->surface))
+    if (!SDL_Vulkan_CreateSurface(window, renderer->instance, renderer->allocator, &renderer->surface))
     {
         Log(ERROR, "Failed to create surface: %s", SDL_GetError());
         return false;
@@ -344,7 +353,7 @@ static bool create_logical_device()
     const char *extensions[] = {"VK_KHR_swapchain", "VK_KHR_maintenance1"};
     VkPhysicalDeviceFeatures features = {.samplerAnisotropy = true};
 
-    VkDeviceCreateInfo device_create = (VkDeviceCreateInfo){
+    VkDeviceCreateInfo device_create = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pQueueCreateInfos = queue_creates,
         .queueCreateInfoCount = queue_create_count,
@@ -353,9 +362,26 @@ static bool create_logical_device()
         .pEnabledFeatures = &features,
     };
 
-    if (vkCreateDevice(renderer->physical_device, &device_create, NULL, &renderer->device) != VK_SUCCESS)
+    if (vkCreateDevice(renderer->physical_device, &device_create, renderer->allocator, &renderer->device) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create logical device");
+        return false;
+    }
+
+    vkGetDeviceQueue(renderer->device, families->graphics_family_index, families->graphics_queue_index, &families->graphics_queue);
+    vkGetDeviceQueue(renderer->device, families->transfer_family_index, families->transfer_queue_index, &families->transfer_queue);
+    vkGetDeviceQueue(renderer->device, families->present_family_index, families->present_queue_index, &families->present_queue);
+
+
+    VkCommandPoolCreateInfo create_command_pool = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = families->graphics_family_index
+    };
+
+    if (vkCreateCommandPool(renderer->device, &create_command_pool, renderer->allocator, &renderer->command_pool) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to create graphics command pool");
         return false;
     }
 
