@@ -11,6 +11,7 @@ incdir = include_directories(
   'engine',
   'game',
   'third_party/xxHash',
+  'third_party/HandmadeMath',
 )
 
 sources += files('main.c')
