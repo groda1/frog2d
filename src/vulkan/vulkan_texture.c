@@ -136,8 +136,7 @@ void VulkanTexture_Destroy()
     MemoryZeroItem(&s_textures);
 }
 
-texture_handle_t VulkanTexture_Create(VkCommandPool command_pool, VkQueue submit_queue,
-                                      u32 width, u32 height, const u8 *rgba_data,
+texture_handle_t VulkanTexture_Create(u32 width, u32 height, const u8 *rgba_data,
                                       sampler_handle_t sampler)
 {
     if (s_textures.texture_count >= MAX_TEXTURES)
@@ -157,8 +156,9 @@ texture_handle_t VulkanTexture_Create(VkCommandPool command_pool, VkQueue submit
         .format = VK_FORMAT_R8G8B8A8_SRGB,
     };
 
-    if (!VulkanImage_CreateStatic(command_pool, submit_queue, width, height, rgba_data,
-                                  &texture.image, &texture.image_memory))
+    VkImageLayout layout;
+    if (!VulkanImage_CreateStatic(width, height, rgba_data, &texture.image,
+                                  &texture.image_memory, &layout))
     {
         Log(ERROR, "failed to create texture image");
         return TEXTURE_HANDLE_INVALID;
@@ -179,7 +179,7 @@ texture_handle_t VulkanTexture_Create(VkCommandPool command_pool, VkQueue submit
     VkDescriptorImageInfo image_info = {
         .sampler = s_textures.samplers[sampler],
         .imageView = texture.image_view,
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .imageLayout = layout,
     };
 
     VkWriteDescriptorSet write = {

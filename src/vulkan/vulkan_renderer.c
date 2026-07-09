@@ -380,9 +380,7 @@ bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *d
 texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
                                               sampler_handle_t sampler)
 {
-    return VulkanTexture_Create(s_renderer->command_pool,
-                                s_renderer->queue_families.graphics_queue, width, height,
-                                rgba_data, sampler);
+    return VulkanTexture_Create(width, height, rgba_data, sampler);
 }
 
 sampler_handle_t VulkanRenderer_CreateSampler()
@@ -882,9 +880,17 @@ static bool create_logical_device()
     const char *extensions[] = {"VK_KHR_swapchain"};
     VkPhysicalDeviceFeatures features = {.samplerAnisotropy = true};
 
+    /* texture uploads via vkCopyMemoryToImage: no staging buffer, command
+       buffer or queue submit */
+    VkPhysicalDeviceVulkan14Features features14 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+        .hostImageCopy = true,
+    };
+
     /* rendering without VkRenderPass/VkFramebuffer objects */
     VkPhysicalDeviceVulkan13Features features13 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = &features14,
         .dynamicRendering = true,
     };
 

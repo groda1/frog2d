@@ -10,17 +10,6 @@
 
 vulkan 1.4 features we now have access to but don't use yet:
 
-- synchronization2 (core 1.3): vkQueueSubmit2 + VkSemaphoreSubmitInfo give
-  per-semaphore stage masks, and vkCmdPipelineBarrier2 puts stage+access in one
-  struct. EndFrame's wait_semaphores/wait_stages arrays and the image layout
-  transition barriers get clearer.
-- timeline semaphores (core 1.2): one counter semaphore can replace the
-  per-frame fence + binary semaphore sets. Also fixes the known debt where a
-  failed frame leaves the transfer semaphore signaled (timeline waits don't
-  consume signals).
-- host image copy (core 1.4): vkCopyMemoryToImage uploads textures without a
-  staging buffer, command buffer, or queue submit at all. Would replace most of
-  VulkanImage_CreateStatic.
 - push descriptors (core 1.4): alternative for the per-pipeline uniform sets
   (set 1) — no descriptor pools/sets to manage, just vkCmdPushDescriptorSet at
   bake time. Would delete the per-pipeline descriptor pool TODO.
@@ -40,11 +29,19 @@ vulkan 1.4 features we now have access to but don't use yet:
   via BDA push constant. Growth only happens at the arena level, at frame
   boundaries.
 
+deprioritized (current sync works fine, revisit if it grows hairier):
+
+- synchronization2 (core 1.3): vkQueueSubmit2 + VkSemaphoreSubmitInfo give
+  per-semaphore stage masks, and vkCmdPipelineBarrier2 puts stage+access in one
+  struct. EndFrame's wait_semaphores/wait_stages arrays and the image layout
+  transition barriers get clearer.
+- timeline semaphores (core 1.2): one counter semaphore can replace the
+  per-frame fence + binary semaphore sets. Also fixes the known debt where a
+  failed frame leaves the transfer semaphore signaled (timeline waits don't
+  consume signals).
+
 texture path follow-ups:
 
-- texture uploads do 3 synchronous vkQueueWaitIdle submits each (transition,
-  copy, transition); batch them into one single-time command buffer, or move
-  uploads onto the per-frame transfer queue path (or host image copy, above)
 - when the texture index moves from push constant to per-instance SSBO data,
   the array index becomes non-uniform: wrap with nonuniformEXT() in the shader
   (the device feature is already enabled)
@@ -72,7 +69,7 @@ misc:
   io in the arena)
 - setup_physical_device picks the first 1.4-capable device; still needs the
   queue family / extension / feature / swapchain support checks from the TODO
-  there, now including the Vulkan12Features descriptor indexing bits and
-  Vulkan13Features dynamicRendering
+  there, now including the Vulkan12Features descriptor indexing bits,
+  Vulkan13Features dynamicRendering and Vulkan14Features hostImageCopy
 - image.c is the only engine file including stb; keep it that way so the
   stb_inc meson include stays engine-private

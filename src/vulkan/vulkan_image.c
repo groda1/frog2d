@@ -1,8 +1,8 @@
 #include <vulkan/vulkan_core.h>
 
+#include "core.h"
 #include "log.h"
 
-#include "vulkan_buffer.h"
 #include "vulkan_context.h"
 #include "vulkan_image.h"
 
@@ -14,14 +14,7 @@ static bool create_image(VkExtent2D extent, u32 mip_levels, VkSampleCountFlags n
 static bool find_supported_format(const VkFormat *candidate_formats, u32 candidate_format_count,
                                   VkImageTiling tiling, VkFormatFeatureFlags features,
                                   VkFormat *format_out);
-static VkCommandBuffer begin_single_time_command(VkCommandPool command_pool);
-static bool end_single_time_command(VkCommandPool command_pool, VkQueue submit_queue,
-                                    VkCommandBuffer command_buffer);
-static bool transition_image_layout(VkCommandPool command_pool, VkQueue submit_queue,
-                                    VkImage image, VkImageLayout old_layout,
-                                    VkImageLayout new_layout);
-static bool copy_buffer_to_image(VkCommandPool command_pool, VkQueue submit_queue,
-                                 VkBuffer buffer, VkImage image, u32 width, u32 height);
+static VkImageLayout host_copy_dst_layout();
 
 bool VulkanImage_CreateView(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags,
                             u32 mip_levels, VkImageView *image_view_out)
@@ -51,42 +44,75 @@ bool VulkanImage_CreateView(VkImage image, VkFormat format, VkImageAspectFlags a
     return true;
 }
 
-bool VulkanImage_CreateStatic(VkCommandPool command_pool, VkQueue submit_queue, u32 width,
-                              u32 height, const u8 *rgba_data, VkImage *image_out,
-                              VkDeviceMemory *image_memory_out)
+bool VulkanImage_CreateStatic(u32 width, u32 height, const u8 *rgba_data, VkImage *image_out,
+                              VkDeviceMemory *image_memory_out, VkImageLayout *layout_out)
 {
     Assert(width > 0 && height > 0 && rgba_data != NULL);
     bool result = false;
-    u64 data_size = (u64)width * (u64)height * 4;
 
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory image_memory = VK_NULL_HANDLE;
-
-    VkBuffer staging_buffer;
-    VkDeviceMemory staging_memory;
-    if (!VulkanBuffer_CreateStaging(rgba_data, data_size, &staging_buffer, &staging_memory))
-        return false;
+    VkImageLayout layout = host_copy_dst_layout();
 
     if (!create_image((VkExtent2D){width, height}, 1, VK_SAMPLE_COUNT_1_BIT,
                       VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                      VK_IMAGE_USAGE_HOST_TRANSFER_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &image, &image_memory))
         goto exit;
 
-    if (!transition_image_layout(command_pool, submit_queue, image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))
-        goto exit;
+    /* host image copy: layout transition and upload are plain device calls,
+       no staging buffer, command buffer or queue submit involved */
+    VkHostImageLayoutTransitionInfo transition = {
+        .sType = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO,
+        .image = image,
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = layout,
+        .subresourceRange =
+            (VkImageSubresourceRange){
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .levelCount = 1,
+                .layerCount = 1,
+            },
+    };
 
-    if (!copy_buffer_to_image(command_pool, submit_queue, staging_buffer, image, width, height))
+    if (vkTransitionImageLayout(g_device, 1, &transition) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to transition image layout on host");
         goto exit;
+    }
 
-    if (!transition_image_layout(command_pool, submit_queue, image,
-                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+    VkMemoryToImageCopy region = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY,
+        .pHostPointer = rgba_data,
+        .imageSubresource =
+            (VkImageSubresourceLayers){
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .layerCount = 1,
+            },
+        .imageExtent = {
+            .width = width,
+            .height = height,
+            .depth = 1,
+        },
+    };
+
+    VkCopyMemoryToImageInfo copy_info = {
+        .sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO,
+        .dstImage = image,
+        .dstImageLayout = layout,
+        .regionCount = 1,
+        .pRegions = &region,
+    };
+
+    if (vkCopyMemoryToImage(g_device, &copy_info) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to copy memory to image");
         goto exit;
+    }
 
     *image_out = image;
     *image_memory_out = image_memory;
+    *layout_out = layout;
 
     result = true;
 
@@ -98,10 +124,44 @@ exit:
         if (image_memory != VK_NULL_HANDLE)
             vkFreeMemory(g_device, image_memory, NULL);
     }
-    vkDestroyBuffer(g_device, staging_buffer, NULL);
-    vkFreeMemory(g_device, staging_memory, NULL);
 
     return result;
+}
+
+/* the copy destination layout must be in the device's pCopyDstLayouts;
+   SHADER_READ_ONLY_OPTIMAL is preferred (and near-universal), GENERAL is the
+   spec-guaranteed fallback */
+static VkImageLayout host_copy_dst_layout()
+{
+    static VkImageLayout s_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (s_layout != VK_IMAGE_LAYOUT_UNDEFINED)
+        return s_layout;
+
+    VkImageLayout dst_layouts[32];
+    VkPhysicalDeviceHostImageCopyProperties host_copy_properties = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES,
+        .copyDstLayoutCount = ArrayCount(dst_layouts),
+        .pCopyDstLayouts = dst_layouts,
+    };
+    VkPhysicalDeviceProperties2 properties = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &host_copy_properties,
+    };
+
+    vkGetPhysicalDeviceProperties2(g_physical_device, &properties);
+
+    s_layout = VK_IMAGE_LAYOUT_GENERAL;
+    for (u32 i = 0; i < host_copy_properties.copyDstLayoutCount; i++)
+    {
+        if (dst_layouts[i] == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        {
+            s_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            break;
+        }
+    }
+
+    return s_layout;
 }
 
 bool VulkanImage_CreateDepthResources(VkExtent2D image_extent, VkFormat depth_format,
@@ -190,155 +250,6 @@ static bool create_image(VkExtent2D extent, u32 mip_levels, VkSampleCountFlags n
         return false;
 
     return true;
-}
-
-static VkCommandBuffer begin_single_time_command(VkCommandPool command_pool)
-{
-    VkCommandBufferAllocateInfo allocate_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-
-    VkCommandBuffer command_buffer;
-    if (vkAllocateCommandBuffers(g_device, &allocate_info, &command_buffer) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to allocate single time command buffer");
-        return VK_NULL_HANDLE;
-    }
-
-    VkCommandBufferBeginInfo begin_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-
-    if (vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to begin single time command buffer");
-        vkFreeCommandBuffers(g_device, command_pool, 1, &command_buffer);
-        return VK_NULL_HANDLE;
-    }
-
-    return command_buffer;
-}
-
-/* synchronous submit; waits for the queue to go idle */
-static bool end_single_time_command(VkCommandPool command_pool, VkQueue submit_queue,
-                                    VkCommandBuffer command_buffer)
-{
-    VkSubmitInfo submit_info = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &command_buffer,
-    };
-
-    bool result = vkEndCommandBuffer(command_buffer) == VK_SUCCESS
-        && vkQueueSubmit(submit_queue, 1, &submit_info, VK_NULL_HANDLE) == VK_SUCCESS
-        && vkQueueWaitIdle(submit_queue) == VK_SUCCESS;
-
-    if (!result)
-        Log(ERROR, "failed to submit single time command buffer");
-
-    vkFreeCommandBuffers(g_device, command_pool, 1, &command_buffer);
-
-    return result;
-}
-
-static bool transition_image_layout(VkCommandPool command_pool, VkQueue submit_queue,
-                                    VkImage image, VkImageLayout old_layout,
-                                    VkImageLayout new_layout)
-{
-    VkAccessFlags src_access_mask;
-    VkAccessFlags dst_access_mask;
-    VkPipelineStageFlags source_stage;
-    VkPipelineStageFlags destination_stage;
-
-    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-        new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    {
-        src_access_mask = 0;
-        dst_access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-             new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        src_access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        dst_access_mask = VK_ACCESS_SHADER_READ_BIT;
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-             new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        src_access_mask = 0;
-        dst_access_mask = VK_ACCESS_SHADER_READ_BIT;
-        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else
-    {
-        Log(ERROR, "unsupported image layout transition %d -> %d", old_layout, new_layout);
-        return false;
-    }
-
-    VkCommandBuffer command_buffer = begin_single_time_command(command_pool);
-    if (command_buffer == VK_NULL_HANDLE)
-        return false;
-
-    VkImageMemoryBarrier image_barrier = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-        .srcAccessMask = src_access_mask,
-        .dstAccessMask = dst_access_mask,
-        .oldLayout = old_layout,
-        .newLayout = new_layout,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = image,
-        .subresourceRange =
-            (VkImageSubresourceRange){
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-    };
-
-    vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, NULL, 0, NULL, 1,
-                         &image_barrier);
-
-    return end_single_time_command(command_pool, submit_queue, command_buffer);
-}
-
-static bool copy_buffer_to_image(VkCommandPool command_pool, VkQueue submit_queue,
-                                 VkBuffer buffer, VkImage image, u32 width, u32 height)
-{
-    VkCommandBuffer command_buffer = begin_single_time_command(command_pool);
-    if (command_buffer == VK_NULL_HANDLE)
-        return false;
-
-    VkBufferImageCopy region = {
-        .imageSubresource =
-            (VkImageSubresourceLayers){
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        .imageExtent = {
-            .width = width,
-            .height = height,
-            .depth = 1,
-        },
-    };
-
-    vkCmdCopyBufferToImage(command_buffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           1, &region);
-
-    return end_single_time_command(command_pool, submit_queue, command_buffer);
 }
 
 static bool find_supported_format(const VkFormat *candidate_formats, u32 candidate_format_count,
