@@ -46,6 +46,6 @@ game_lib = static_library('game', game_sources,
     dependencies : [sdl3_dep, vulkan_dep],
 )
 
-frog2d_libs = [core_lib, vulkan_lib, engine_lib, game_lib]
+dcfs_libs = [core_lib, vulkan_lib, engine_lib, game_lib]
 
 sources += files('main.c')

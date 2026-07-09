@@ -7,11 +7,13 @@
 
 #define SWAPCHAIN_PASS_HANDLE   U32_MAX
 #define PIPELINE_HANDLE_INVALID U32_MAX
+#define BUFFER_OBJECT_HANDLE_INVALID U32_MAX
 
 #define MAX_VERTEX_ATTRIBUTES 8
 
 typedef u32 renderpass_handle_t;
 typedef u32 pipeline_handle_t;
+typedef u32 buffer_object_handle_t;
 
 typedef struct
 {
@@ -64,5 +66,11 @@ typedef enum
     BO_UNIFORM_FRAGMENT,
     BO_STORAGE,
 } buffer_object_type_t;
+
+typedef enum
+{
+    VERTEX,
+    FRAGMENT,
+} uniform_stage_t;
 
 #endif

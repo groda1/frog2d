@@ -1,6 +1,6 @@
 
 - extern device, command_pool, graphics_queues and so on
-- mesh shoudlnt ocntain vkbuffers and creating static buffers shouldnt return them either. abstract
+- mesh shoudlnt ocntain vkbuffers and creating static buffers shouldnt return them either. abstract so we can remove vk from game
 - uniforms
 - resizing (pipeline recreation)
 - textures

@@ -55,5 +55,6 @@ pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size);
 VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count);
+buffer_object_handle_t VulkanRenderer_CreateUniformBuffer(u64 size, uniform_stage_t stage);
 
 #endif

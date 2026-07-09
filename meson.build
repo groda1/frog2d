@@ -1,4 +1,4 @@
-project('frog2d', 'c',
+project('dcfs', 'c',
         default_options: [
             'buildtype=debugoptimized',
             'optimization=3',
@@ -26,12 +26,12 @@ subdir('shaders')
 
 shader_depend = declare_dependency (sources: shader_targets)
 
-executable('frog2d',
+executable('dcfs',
     sources,
     win_subsystem: 'windows',
     # main.c interfaces with the game only
     include_directories : [core_inc, game_inc],
-    link_with : frog2d_libs,
+    link_with : dcfs_libs,
     dependencies: [
         sdl3_dep,
         vulkan_dep,

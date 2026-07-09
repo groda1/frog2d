@@ -48,6 +48,13 @@ pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
     return VulkanRenderer_AddPipeline(pass_handle, config);
 }
 
+buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t stage)
+{
+    // TODO
+    //VulkanRenderer_CreateUniformBuffer
+    //return BUFFER_OBJECT_HANDLE_INVALID;
+}
+
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
                        const void *push_constant_data, const mesh_t *mesh)
 {

@@ -13,7 +13,7 @@
 
 #define APPLICATION_NAME    "todo"
 #define APPLICATION_VERSION VK_MAKE_VERSION(0, 0, 1)
-#define ENGINE_NAME         "frog2d"
+#define ENGINE_NAME         "dcfs"
 #define ENGINE_VERSION      VK_MAKE_VERSION(0, 0, 1)
 
 #define MAX_FAMILY_COUNT            16
@@ -251,12 +251,6 @@ bool VulkanRenderer_EndFrame()
         }
     }
 
-    // TODO bake and submit transfer commands here, signaling the
-    // transfer-finished semaphore, and make the draw submit below also wait on
-    // it at VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
-
-    /* bake draw command buffer; indexed by frame in flight, since that is what
-       the fence wait above proves is no longer executing */
     VkCommandBuffer draw_command_buffer =
         g_renderer->draw_command_buffers[g_renderer->frame_sync.inflight_counter];
 
@@ -363,6 +357,11 @@ VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_co
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
     return buffer;
+}
+
+buffer_object_handle_t VulkanRenderer_CreateUniformBuffer(u64 size, uniform_stage_t stage)
+{
+    //TODO
 }
 
 static bool create_swapchain(bool vsync)

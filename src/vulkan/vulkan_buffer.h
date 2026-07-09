@@ -4,14 +4,19 @@
 #include <vulkan/vulkan_core.h>
 
 #include "core.h"
+#include "render_types.h"
 
 bool VulkanBuffer_Init();
 void VulkanBuffer_Destroy(VkDevice device);
 
-bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buffer, u32 image_index);
-
 VkBuffer VulkanBuffer_CreateStatic(VkDevice device, VkPhysicalDeviceMemoryProperties memory_prop,
                                    VkCommandPool command_pool, VkQueue submit_queue, const u8 *data,
                                    u64 size, VkBufferUsageFlags usage);
+
+buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, VkDevice device, u64 capacity, buffer_object_type_t type);
+
+bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buffer, u32 image_index);
+
+
 
 #endif

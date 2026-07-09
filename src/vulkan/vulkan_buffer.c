@@ -3,6 +3,7 @@
 #include "core.h"
 #include "log.h"
 
+#include "memory_arena.h"
 #include "render_types.h"
 #include "vulkan_memory.h"
 #include "vulkan_renderer.h"
@@ -43,7 +44,7 @@ static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperti
 typedef struct _buffers_t buffers_t;
 struct _buffers_t
 {
-    buffer_object_t buffer_objects[MAX_BUFFER_OBJECT];
+    buffer_object_t *buffer_objects[MAX_BUFFER_OBJECT];
     u32             buffer_object_count;
 
     VkBuffer        static_buffers[MAX_STATIC_BUFFERS];
@@ -73,64 +74,6 @@ void VulkanBuffer_Destroy(VkDevice device)
 
 }
 
-bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buffer, u32 image_index)
-{
-    bool transfer_required = false;
-
-    VkCommandBufferBeginInfo begin_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-
-    if (vkResetCommandBuffer(command_buffer, 0) != VK_SUCCESS ||
-        vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to begin draw command buffer");
-        return false;
-    }
-
-    for (u32 i = 0 ; i < s_buffers.buffer_object_count; i++)
-    {
-        buffer_object_t *bo = &s_buffers.buffer_objects[i];
-        if (!bo->dirty[image_index])
-            continue;
-
-        transfer_required = true;
-
-        VkBuffer staging_buffer = bo->staging_buffers[image_index];
-        VkDeviceMemory staging_memory = bo->staging_mem[image_index];
-        VkBuffer device_buffer = bo->device_buffers[image_index];
-
-        if (bo->cpu_buf_len > 0)
-        {
-            void *mapped;
-
-            if (vkMapMemory(device, staging_memory, 0, bo->cpu_buf_len, 0, &mapped) != VK_SUCCESS)
-            {
-                Log(ERROR, "failed to map staging buffer memory");
-                return false;
-            }
-            MemoryCopy(mapped, bo->cpu_buf, bo->cpu_buf_len);
-            vkUnmapMemory(device, staging_memory);
-        }
-        bo->dirty[image_index] = false;
-
-        VkBufferCopy copy_region = {
-            .srcOffset = 0,
-            .dstOffset = 0,
-            .size = bo->cpu_buf_len,
-        };
-        vkCmdCopyBuffer(command_buffer, staging_buffer, device_buffer, 1, &copy_region);
-    }
-
-    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to end draw command buffer");
-        return false;
-    }
-
-    return transfer_required;
-}
 
 VkBuffer VulkanBuffer_CreateStatic(VkDevice device, VkPhysicalDeviceMemoryProperties memory_prop,
                                    VkCommandPool command_pool, VkQueue submit_queue, const u8 *data,
@@ -192,6 +135,85 @@ exit:
 
     return static_buffer;
 }
+
+AttributeMaybeUnused
+buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, VkDevice device, u64 capacity, buffer_object_type_t type)
+{
+    if (s_buffers.buffer_object_count >= MAX_BUFFER_OBJECT)
+        return BUFFER_OBJECT_HANDLE_INVALID;
+
+    buffer_object_handle_t handle = s_buffers.buffer_object_count;
+    buffer_object_t *object = arena_push(arena, buffer_object_t);
+
+    *object = (buffer_object_t){
+        .capacity = capacity,
+        //.device_buffers = todo
+
+
+    };
+
+    return handle;
+}
+
+bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buffer, u32 image_index)
+{
+    bool transfer_required = false;
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+
+    if (vkResetCommandBuffer(command_buffer, 0) != VK_SUCCESS ||
+        vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to begin draw command buffer");
+        return false;
+    }
+
+    for (u32 i = 0 ; i < s_buffers.buffer_object_count; i++)
+    {
+        buffer_object_t *bo = s_buffers.buffer_objects[i];
+        if (!bo->dirty[image_index])
+            continue;
+
+        transfer_required = true;
+
+        VkBuffer staging_buffer = bo->staging_buffers[image_index];
+        VkDeviceMemory staging_memory = bo->staging_mem[image_index];
+        VkBuffer device_buffer = bo->device_buffers[image_index];
+
+        if (bo->cpu_buf_len > 0)
+        {
+            void *mapped;
+
+            if (vkMapMemory(device, staging_memory, 0, bo->cpu_buf_len, 0, &mapped) != VK_SUCCESS)
+            {
+                Log(ERROR, "failed to map staging buffer memory");
+                return false;
+            }
+            MemoryCopy(mapped, bo->cpu_buf, bo->cpu_buf_len);
+            vkUnmapMemory(device, staging_memory);
+        }
+        bo->dirty[image_index] = false;
+
+        VkBufferCopy copy_region = {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = bo->cpu_buf_len,
+        };
+        vkCmdCopyBuffer(command_buffer, staging_buffer, device_buffer, 1, &copy_region);
+    }
+
+    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to end draw command buffer");
+        return false;
+    }
+
+    return transfer_required;
+}
+
 
 static bool create_vulkan_buffer(VkDevice device, VkPhysicalDeviceMemoryProperties memory_properties,
                          VkDeviceSize size, VkBufferUsageFlags usage,
