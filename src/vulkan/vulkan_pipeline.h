@@ -4,23 +4,23 @@
 #include <vulkan/vulkan_core.h>
 
 #include "core.h"
-#include "memory_arena.h"
 
 #include "render_types.h"
+#include "vulkan_types.h"
 
 typedef struct _pipeline_t pipeline_t;
 
 struct _pipeline_t
 {
+    pipeline_config_t   config;
+
     VkPipeline          vk_pipeline;
     VkPipelineLayout    layout;
     u32                 push_constant_size;
 
-    /* kept for future rebuilds; the shader code is owned by the caller and
-       must outlive the pipeline */
-    pipeline_config_t   config;
-
-    // TODO descriptor sets
+    VkDescriptorSetLayout   descriptor_set_layout;
+    VkDescriptorPool        descriptor_pool;
+    VkDescriptorSet         descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 };
 
 bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,

@@ -50,9 +50,12 @@ pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
 
 buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t stage)
 {
-    // TODO
-    //VulkanRenderer_CreateUniformBuffer
-    //return BUFFER_OBJECT_HANDLE_INVALID;
+    return VulkanRenderer_CreateUniformBuffer(size, stage);
+}
+
+bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size)
+{
+    return VulkanRenderer_SetBufferObject(handle, data, size);
 }
 
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,

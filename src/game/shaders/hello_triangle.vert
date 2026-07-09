@@ -30,5 +30,8 @@ void main() {
     gl_Position = model.transform * vec4(wobbled_position, 1.0);
 
     fragColor = inColor;
+
+    // barycentric corner basis; min(edgePosition) is the distance to the
+    // nearest triangle edge (valid because the mesh is indexed 0,1,2)
     edgePosition = edge[gl_VertexIndex % 3];
 }

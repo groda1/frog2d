@@ -5,8 +5,9 @@
 
 #include "memory_arena.h"
 #include "render_types.h"
+#include "vulkan_buffer.h"
 #include "vulkan_memory.h"
-#include "vulkan_renderer.h"
+#include "vulkan_types.h"
 
 #define MAX_ASSIGNMENTS     8
 #define MAX_BUFFER_OBJECT   1024
@@ -25,6 +26,7 @@ struct _buffer_object_t
     VkDeviceMemory          staging_mem[MAX_FRAMES_IN_FLIGHT];
 
     VkBuffer                device_buffers[MAX_FRAMES_IN_FLIGHT];
+    VkDeviceMemory          device_mem[MAX_FRAMES_IN_FLIGHT];
 
     // TODO: is this only needed for growable BOs?
     //pipeline_handle_t       assigned_pipelines[MAX_ASSIGNMENTS];
@@ -70,8 +72,18 @@ void VulkanBuffer_Destroy(VkDevice device)
     }
 
     // Free buffer objects
-    // TODO
+    for (u32 i = 0; i < s_buffers.buffer_object_count; i++)
+    {
+        buffer_object_t *object = s_buffers.buffer_objects[i];
 
+        for (u32 j = 0; j < MAX_FRAMES_IN_FLIGHT; j++)
+        {
+            vkDestroyBuffer(device, object->staging_buffers[j], NULL);
+            vkFreeMemory(device, object->staging_mem[j], NULL);
+            vkDestroyBuffer(device, object->device_buffers[j], NULL);
+            vkFreeMemory(device, object->device_mem[j], NULL);
+        }
+    }
 }
 
 
@@ -136,23 +148,84 @@ exit:
     return static_buffer;
 }
 
-AttributeMaybeUnused
-buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, VkDevice device, u64 capacity, buffer_object_type_t type)
+buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, VkDevice device,
+                                                 VkPhysicalDeviceMemoryProperties memory_prop,
+                                                 u64 capacity, buffer_object_type_t type)
 {
     if (s_buffers.buffer_object_count >= MAX_BUFFER_OBJECT)
+    {
+        Log(ERROR, "maximum number of buffer objects reached");
         return BUFFER_OBJECT_HANDLE_INVALID;
+    }
+
+    VkBufferUsageFlags usage = type == BO_STORAGE
+        ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+        : VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+    buffer_object_t *object = arena_push(arena, buffer_object_t);
+    object->type = type;
+    object->capacity = capacity;
+    object->cpu_buf = arena_push_array_no_zero(arena, u8, capacity);
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        if (!create_vulkan_buffer(device, memory_prop, capacity, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                      | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                  &object->staging_buffers[i], &object->staging_mem[i]))
+            return BUFFER_OBJECT_HANDLE_INVALID;
+
+        if (!create_vulkan_buffer(device, memory_prop, capacity,
+                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
+                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                  &object->device_buffers[i], &object->device_mem[i]))
+            return BUFFER_OBJECT_HANDLE_INVALID;
+    }
 
     buffer_object_handle_t handle = s_buffers.buffer_object_count;
-    buffer_object_t *object = arena_push(arena, buffer_object_t);
-
-    *object = (buffer_object_t){
-        .capacity = capacity,
-        //.device_buffers = todo
-
-
-    };
+    s_buffers.buffer_objects[handle] = object;
+    s_buffers.buffer_object_count++;
 
     return handle;
+}
+
+bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data, u64 size)
+{
+    if (handle >= s_buffers.buffer_object_count)
+    {
+        Log(ERROR, "invalid buffer object handle %u", handle);
+        return false;
+    }
+
+    buffer_object_t *object = s_buffers.buffer_objects[handle];
+    if (size > object->capacity)
+    {
+        Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", size, object->capacity);
+        return false;
+    }
+
+    MemoryCopy(object->cpu_buf, data, size);
+    object->cpu_buf_len = size;
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        object->dirty[i] = true;
+
+    return true;
+}
+
+VkBuffer VulkanBuffer_GetDeviceBuffer(buffer_object_handle_t handle, u32 frame_index)
+{
+    Assert(handle < s_buffers.buffer_object_count);
+    Assert(frame_index < MAX_FRAMES_IN_FLIGHT);
+
+    return s_buffers.buffer_objects[handle]->device_buffers[frame_index];
+}
+
+u64 VulkanBuffer_GetObjectCapacity(buffer_object_handle_t handle)
+{
+    Assert(handle < s_buffers.buffer_object_count);
+
+    return s_buffers.buffer_objects[handle]->capacity;
 }
 
 bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buffer, u32 image_index)
@@ -177,25 +250,24 @@ bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buf
         if (!bo->dirty[image_index])
             continue;
 
-        transfer_required = true;
+        bo->dirty[image_index] = false;
+
+        /* zero-size copies are not allowed */
+        if (bo->cpu_buf_len == 0)
+            continue;
 
         VkBuffer staging_buffer = bo->staging_buffers[image_index];
         VkDeviceMemory staging_memory = bo->staging_mem[image_index];
         VkBuffer device_buffer = bo->device_buffers[image_index];
 
-        if (bo->cpu_buf_len > 0)
+        void *mapped;
+        if (vkMapMemory(device, staging_memory, 0, bo->cpu_buf_len, 0, &mapped) != VK_SUCCESS)
         {
-            void *mapped;
-
-            if (vkMapMemory(device, staging_memory, 0, bo->cpu_buf_len, 0, &mapped) != VK_SUCCESS)
-            {
-                Log(ERROR, "failed to map staging buffer memory");
-                return false;
-            }
-            MemoryCopy(mapped, bo->cpu_buf, bo->cpu_buf_len);
-            vkUnmapMemory(device, staging_memory);
+            Log(ERROR, "failed to map staging buffer memory");
+            return false;
         }
-        bo->dirty[image_index] = false;
+        MemoryCopy(mapped, bo->cpu_buf, bo->cpu_buf_len);
+        vkUnmapMemory(device, staging_memory);
 
         VkBufferCopy copy_region = {
             .srcOffset = 0,
@@ -203,6 +275,8 @@ bool VulkanBuffer_BakeCommandBuffer(VkDevice device, VkCommandBuffer command_buf
             .size = bo->cpu_buf_len,
         };
         vkCmdCopyBuffer(command_buffer, staging_buffer, device_buffer, 1, &copy_region);
+
+        transfer_required = true;
     }
 
     if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)

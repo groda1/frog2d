@@ -361,7 +361,16 @@ VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_co
 
 buffer_object_handle_t VulkanRenderer_CreateUniformBuffer(u64 size, uniform_stage_t stage)
 {
-    //TODO
+    buffer_object_type_t type =
+        stage == UNIFORM_STAGE_VERTEX ? BO_UNIFORM_VERTEX : BO_UNIFORM_FRAGMENT;
+
+    return VulkanBuffer_CreateObject(g_renderer->global_arena, g_renderer->device,
+                                     g_renderer->physical_device_memory_prop, size, type);
+}
+
+bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size)
+{
+    return VulkanBuffer_SetObjectData(handle, data, size);
 }
 
 static bool create_swapchain(bool vsync)

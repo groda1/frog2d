@@ -17,6 +17,11 @@ pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
 
 buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t stage);
 
+/* the data is copied into the buffer object's cpu shadow and uploaded to the
+   gpu buffers over the next frames; the pointer only needs to stay valid for
+   the duration of the call */
+bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size);
+
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
                        const void *push_constant_data, const mesh_t *mesh);
 

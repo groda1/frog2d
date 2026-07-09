@@ -444,6 +444,14 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
         {
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               pipeline->vk_pipeline);
+
+            if (pipeline->descriptor_sets[image_index] != VK_NULL_HANDLE)
+            {
+                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipeline->layout, 0, 1,
+                                        &pipeline->descriptor_sets[image_index], 0, NULL);
+            }
+
             bound_pipeline = pipeline;
         }
 

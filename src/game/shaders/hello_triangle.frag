@@ -11,9 +11,9 @@ const float wire_width = 0.005;
 const vec3 wireColor = vec3(1.0, 1.0, 1.0);
 
 void main() {
-    // Compute the shortest distance to the edge
+    // Distance to the nearest triangle edge in barycentric space
     float d = min(edgePosition[0], min(edgePosition[1], edgePosition[2]));
-    float wire_factor = smoothstep(wire_width, wire_width*2, d);
+    float wire_factor = step(wire_width, d);
 
     outColor = vec4(wire_factor * fragColor + (1 - wire_factor) * wireColor, 1.0);
 }

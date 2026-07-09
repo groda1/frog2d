@@ -1,11 +1,15 @@
 #include "core.h"
 #include "log.h"
 
+#include "vulkan_buffer.h"
 #include "vulkan_pipeline.h"
 
 static VkFormat vertex_format_to_vk(vertex_format_t format);
+static VkShaderStageFlags uniform_stage_to_vk(uniform_stage_t stage);
 static bool create_shader_module(VkDevice device, shader_code_t shader,
                                  VkShaderModule *module_out);
+static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *config,
+                                   pipeline_t *pipeline);
 
 bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
                            const pipeline_config_t *config, pipeline_t *pipeline_out)
@@ -14,12 +18,17 @@ bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
 
     bool result = false;
 
+    MemoryZeroItem(pipeline_out);
+
     VkShaderModule vertex_shader = VK_NULL_HANDLE;
     VkShaderModule fragment_shader = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
 
     if (!create_shader_module(device, config->vertex_shader, &vertex_shader) ||
         !create_shader_module(device, config->fragment_shader, &fragment_shader))
+        goto exit;
+
+    if (!create_descriptor_sets(device, config, pipeline_out))
         goto exit;
 
     VkPipelineShaderStageCreateInfo shader_stages[] = {
@@ -138,7 +147,8 @@ bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pushConstantRangeCount = config->push_constant_size > 0 ? 1U : 0U,
         .pPushConstantRanges = &push_constant_range,
-        // TODO descriptor set layouts
+        .setLayoutCount = pipeline_out->descriptor_set_layout != VK_NULL_HANDLE ? 1U : 0U,
+        .pSetLayouts = &pipeline_out->descriptor_set_layout,
     };
 
     if (vkCreatePipelineLayout(device, &layout_create_info, NULL, &layout) != VK_SUCCESS)
@@ -182,6 +192,13 @@ bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
     Log(INFO, "Created pipeline");
 
 exit:
+    if (!result)
+    {
+        if (pipeline_out->descriptor_pool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(device, pipeline_out->descriptor_pool, NULL);
+        if (pipeline_out->descriptor_set_layout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(device, pipeline_out->descriptor_set_layout, NULL);
+    }
     if (layout != VK_NULL_HANDLE)
         vkDestroyPipelineLayout(device, layout, NULL);
     if (vertex_shader != VK_NULL_HANDLE)
@@ -194,10 +211,129 @@ exit:
 
 void VulkanPipeline_Destroy(VkDevice device, pipeline_t *pipeline)
 {
+    if (pipeline->descriptor_pool != VK_NULL_HANDLE)
+        vkDestroyDescriptorPool(device, pipeline->descriptor_pool, NULL);
+    if (pipeline->descriptor_set_layout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(device, pipeline->descriptor_set_layout, NULL);
+
     vkDestroyPipeline(device, pipeline->vk_pipeline, NULL);
     vkDestroyPipelineLayout(device, pipeline->layout, NULL);
 
     MemoryZeroItem(pipeline);
+}
+
+static bool create_descriptor_sets(VkDevice device, const pipeline_config_t *config,
+                                   pipeline_t *pipeline)
+{
+    if (config->uniform_binding_count == 0)
+        return true;
+
+    Assert(config->uniform_binding_count <= MAX_UNIFORM_BINDINGS);
+
+    VkDescriptorSetLayoutBinding layout_bindings[MAX_UNIFORM_BINDINGS];
+    for (u32 i = 0; i < config->uniform_binding_count; i++)
+    {
+        const uniform_binding_t *binding = &config->uniform_bindings[i];
+        layout_bindings[i] = (VkDescriptorSetLayoutBinding){
+            .binding = binding->binding,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = uniform_stage_to_vk(binding->stage),
+        };
+    }
+
+    VkDescriptorSetLayoutCreateInfo layout_create_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = config->uniform_binding_count,
+        .pBindings = layout_bindings,
+    };
+
+    if (vkCreateDescriptorSetLayout(device, &layout_create_info, NULL,
+                                    &pipeline->descriptor_set_layout) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to create descriptor set layout");
+        return false;
+    }
+
+    VkDescriptorPoolSize pool_size = {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = config->uniform_binding_count * MAX_FRAMES_IN_FLIGHT,
+    };
+
+    // TODO a shared descriptor pool instead of one per pipeline
+    VkDescriptorPoolCreateInfo pool_create_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = MAX_FRAMES_IN_FLIGHT,
+        .poolSizeCount = 1,
+        .pPoolSizes = &pool_size,
+    };
+
+    if (vkCreateDescriptorPool(device, &pool_create_info, NULL,
+                               &pipeline->descriptor_pool) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to create descriptor pool");
+        return false;
+    }
+
+    VkDescriptorSetLayout set_layouts[MAX_FRAMES_IN_FLIGHT];
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        set_layouts[i] = pipeline->descriptor_set_layout;
+
+    VkDescriptorSetAllocateInfo allocate_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pipeline->descriptor_pool,
+        .descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
+        .pSetLayouts = set_layouts,
+    };
+
+    if (vkAllocateDescriptorSets(device, &allocate_info, pipeline->descriptor_sets) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to allocate descriptor sets");
+        return false;
+    }
+
+    for (u32 frame = 0; frame < MAX_FRAMES_IN_FLIGHT; frame++)
+    {
+        VkDescriptorBufferInfo buffer_infos[MAX_UNIFORM_BINDINGS];
+        VkWriteDescriptorSet writes[MAX_UNIFORM_BINDINGS];
+
+        for (u32 i = 0; i < config->uniform_binding_count; i++)
+        {
+            const uniform_binding_t *binding = &config->uniform_bindings[i];
+
+            buffer_infos[i] = (VkDescriptorBufferInfo){
+                .buffer = VulkanBuffer_GetDeviceBuffer(binding->buffer_object, frame),
+                .offset = 0,
+                .range = VulkanBuffer_GetObjectCapacity(binding->buffer_object),
+            };
+
+            writes[i] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = pipeline->descriptor_sets[frame],
+                .dstBinding = binding->binding,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .pBufferInfo = &buffer_infos[i],
+            };
+        }
+
+        vkUpdateDescriptorSets(device, config->uniform_binding_count, writes, 0, NULL);
+    }
+
+    return true;
+}
+
+static VkShaderStageFlags uniform_stage_to_vk(uniform_stage_t stage)
+{
+    switch (stage)
+    {
+    case UNIFORM_STAGE_VERTEX:
+        return VK_SHADER_STAGE_VERTEX_BIT;
+    case UNIFORM_STAGE_FRAGMENT:
+        return VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
+    return 0;
 }
 
 static VkFormat vertex_format_to_vk(vertex_format_t format)
