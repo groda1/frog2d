@@ -10,6 +10,7 @@
 #define DEFAULT_WIDTH 1920
 #define DEFAULT_HEIGHT 1080
 
+const char *__lsan_default_suppressions(void);
 
 int main(int argc, char **argv)
 {
@@ -78,4 +79,9 @@ exit:
     Log_Destroy();
 
     return 0;
+}
+
+const char *__lsan_default_suppressions(void)
+{
+    return "leak:libdbus-1\n";
 }
