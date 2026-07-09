@@ -1,36 +1,8 @@
-#include <sys/mman.h>
-
 #include "log.h"
 #include "memory_arena.h"
+#include "os_memory.h"
 
 #define PAGE_SIZE ((u64)4096)
-
-static void *os_reserve(u64 reserve_size);
-static void os_release(void *ptr, u64 size);
-static bool os_commit(void *ptr, u64 size);
-
-static void *os_reserve(u64 reserve_size)
-{
-    // TODO: this is linux specific
-    void *ptr = mmap(0, reserve_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (ptr == MAP_FAILED)
-        return NULL;
-    return ptr;
-}
-
-static void os_release(void *ptr, u64 size)
-{
-    // TODO: this is linux specific
-    munmap(ptr, size);
-}
-
-static bool os_commit(void *ptr, u64 size)
-{
-    // TODO: this is linux specific
-    if (mprotect(ptr, size, PROT_READ | PROT_WRITE))
-        return true;
-    return false;
-}
 
 arena_t *MemoryArena_Create(const char *name)
 {
@@ -49,11 +21,11 @@ arena_t *MemoryArena_CreateP(const char *name, arena_params_t params)
     reserve_size = AlignPow2(reserve_size, PAGE_SIZE);
     commit_size = AlignPow2(commit_size, PAGE_SIZE);
 
-    void *base = os_reserve(reserve_size);
+    void *base = OS_MemoryReserve(reserve_size);
 
     if (base)
     {
-        os_commit(base, commit_size);
+        OS_MemoryCommit(base, commit_size);
 
         arena_t *arena = (arena_t *)base;
         arena->name = name;
@@ -77,7 +49,7 @@ void MemoryArena_Destroy(arena_t *arena)
     for (arena_t *it = arena->current, *prev = 0; it != 0; it = prev)
     {
         prev = it->prev;
-        os_release(it, it->reserved);
+        OS_MemoryRelease(it, it->reserved);
     }
 }
 
@@ -121,7 +93,7 @@ void *MemoryArena_Push(arena_t *arena, u64 size, u64 align)
         u64 cmt_size = cmt_pst_clamped - current->commited;
         u8 *cmt_ptr = (u8 *)current + current->commited;
 
-        os_commit(cmt_ptr, cmt_size);
+        OS_MemoryCommit(cmt_ptr, cmt_size);
 
         Log(DEBUG, "arena %s: commited %ju", cmt_size);
         current->commited = cmt_pst_clamped;
@@ -157,7 +129,7 @@ void MemoryArena_PopTo(arena_t *arena, u64 pos)
     for (arena_t *prev = NULL; current->base_pos >= big_pos; current = prev)
     {
         prev = current->prev;
-        os_release(current, current->reserved);
+        OS_MemoryRelease(current, current->reserved);
     }
     arena->current = current;
 
