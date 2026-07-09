@@ -9,6 +9,7 @@
 
 #define MAX_SHADER_PATH 512
 
+static VkFormat vertex_format_to_vk(vertex_format_t format);
 static u8 *read_shader_file(arena_t *arena, const char *path, u64 *size_out);
 static bool create_shader_module(VkDevice device, arena_t *scratch, const char *path,
                                  VkShaderModule *module_out);
@@ -51,12 +52,23 @@ bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_
         .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
     };
 
+    VkVertexInputAttributeDescription vertex_attributes[MAX_VERTEX_ATTRIBUTES];
+    for (u32 i = 0; i < config->vertex_attribute_count; i++)
+    {
+        vertex_attributes[i] = (VkVertexInputAttributeDescription){
+            .location = config->vertex_attributes[i].location,
+            .binding = 0,
+            .format = vertex_format_to_vk(config->vertex_attributes[i].format),
+            .offset = config->vertex_attributes[i].offset,
+        };
+    }
+
     VkPipelineVertexInputStateCreateInfo vertex_input_state = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = 1,
         .pVertexBindingDescriptions = &vertex_binding,
         .vertexAttributeDescriptionCount = config->vertex_attribute_count,
-        .pVertexAttributeDescriptions = config->vertex_attributes,
+        .pVertexAttributeDescriptions = vertex_attributes,
     };
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
@@ -198,6 +210,23 @@ void VulkanPipeline_Destroy(VkDevice device, pipeline_t *pipeline)
     vkDestroyPipelineLayout(device, pipeline->layout, NULL);
 
     MemoryZeroItem(pipeline);
+}
+
+static VkFormat vertex_format_to_vk(vertex_format_t format)
+{
+    switch (format)
+    {
+    case VERTEX_FORMAT_F32:
+        return VK_FORMAT_R32_SFLOAT;
+    case VERTEX_FORMAT_F32X2:
+        return VK_FORMAT_R32G32_SFLOAT;
+    case VERTEX_FORMAT_F32X3:
+        return VK_FORMAT_R32G32B32_SFLOAT;
+    case VERTEX_FORMAT_F32X4:
+        return VK_FORMAT_R32G32B32A32_SFLOAT;
+    }
+
+    return VK_FORMAT_UNDEFINED;
 }
 
 static u8 *read_shader_file(arena_t *arena, const char *path, u64 *size_out)

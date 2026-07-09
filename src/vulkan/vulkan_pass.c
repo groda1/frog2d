@@ -2,7 +2,7 @@
 
 #include "core.h"
 #include "log.h"
-#include "vulkan_global.h"
+#include "render_types.h"
 #include "vulkan_pass.h"
 #include "vulkan_image.h"
 #include "vulkan_pipeline.h"
@@ -55,7 +55,7 @@ struct _render_target
 typedef struct _render_pass render_pass_t;
 struct _render_pass
 {
-    u64             handle;
+    renderpass_handle_t handle;
     VkExtent2D      extent;
     render_target_t target;
     VkRenderPass    vk_render_pass;
@@ -80,7 +80,7 @@ struct _vk_passes
 
 static vk_passes_t g_passes = {};
 
-static render_pass_t *get_render_pass(u64 pass_handle);
+static render_pass_t *get_render_pass(renderpass_handle_t pass_handle);
 static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
                                          VkFormat depth_format, VkRenderPass *render_pass_out);
 static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index);
@@ -244,7 +244,7 @@ pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, render
     render_pass_t *pass = get_render_pass(pass_handle);
     if (!pass)
     {
-        Log(ERROR, "no active render pass with handle %ju", pass_handle);
+        Log(ERROR, "no active render pass with handle %u", pass_handle);
         return PIPELINE_HANDLE_INVALID;
     }
 
@@ -264,7 +264,7 @@ pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, render
     return (pipeline_handle_t)pass->pipeline_count++;
 }
 
-static render_pass_t *get_render_pass(u64 pass_handle)
+static render_pass_t *get_render_pass(renderpass_handle_t pass_handle)
 {
     if (pass_handle == SWAPCHAIN_PASS_HANDLE && g_passes.swapchain_set &&
         g_passes.swapchain_pass.active)
@@ -288,7 +288,7 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
     render_pass_t *pass = get_render_pass(draw_command->pass);
     if (!pass)
     {
-        Log(ERROR, "no active render pass with handle %ju", draw_command->pass);
+        Log(ERROR, "no active render pass with handle %u", draw_command->pass);
         return;
     }
 

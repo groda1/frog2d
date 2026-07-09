@@ -22,11 +22,6 @@ sources = []
 
 subdir('src')
 
-sources += core_sources
-sources += vulkan_sources
-sources += engine_sources
-sources += game_sources
-
 subdir('shaders')
 
 shader_depend = declare_dependency (sources: shader_targets)
@@ -35,9 +30,10 @@ executable('frog2d',
     sources,
     win_subsystem: 'windows',
     include_directories : incdir,
+    link_with : frog2d_libs,
     dependencies: [
-        dependency('sdl3'),
-        dependency('vulkan'),
+        sdl3_dep,
+        vulkan_dep,
         shader_depend,
     ],
 )

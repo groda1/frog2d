@@ -302,10 +302,10 @@ VkExtent2D VulkanRenderer_GetExtent()
     return g_renderer->swapchain.extent;
 }
 
-pipeline_handle_t VulkanRenderer_AddPipeline(const pipeline_config_t *config)
+pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
+                                             const pipeline_config_t *config)
 {
-    return VulkanPass_AddPipeline(g_renderer->arena, g_renderer->device,
-                                  SWAPCHAIN_PASS_HANDLE, config);
+    return VulkanPass_AddPipeline(g_renderer->arena, g_renderer->device, pass_handle, config);
 }
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)

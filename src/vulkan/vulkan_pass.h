@@ -3,7 +3,7 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include "vulkan_global.h"
+#include "render_types.h"
 #include "vulkan_renderer.h"
 #include "vulkan_pipeline.h"
 

@@ -4,9 +4,8 @@
 
 #include "game_main.h"
 #include "mesh.h"
-#include "vulkan_global.h"
-#include "vulkan_renderer.h"
-#include "vulkan_pass.h"
+#include "renderer.h"
+
 
 /* port of the vulkrap hello_krap example: a wobbling triangle */
 
@@ -35,7 +34,7 @@ bool Game_Init(void)
 {
     g_game.mesh = *MeshManager_GetMesh(PREDEFINED_MESH_COLORED_TRIANGLE);
 
-    VkExtent2D extent = VulkanRenderer_GetExtent();
+    window_extent_t extent = Renderer_GetWindowExtent();
     g_game.position = V3((f32)extent.width / 2.0f, (f32)extent.height / 2.0f, 0.0f);
     g_game.orientation = HMM_Q(0.0f, 0.0f, 0.0f, 1.0f);
     g_game.push_constant.transform = HMM_M4D(1.0f);
@@ -50,20 +49,18 @@ bool Game_Init(void)
         .vertex_attributes = {
             {
                 .location = 0,
-                .binding = 0,
-                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .format = VERTEX_FORMAT_F32X3,
                 .offset = offsetof(colored_vertex_t, position),
             },
             {
                 .location = 1,
-                .binding = 0,
-                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .format = VERTEX_FORMAT_F32X3,
                 .offset = offsetof(colored_vertex_t, color),
             },
         },
     };
 
-    g_game.pipeline = VulkanRenderer_AddPipeline(&pipeline_config);
+    g_game.pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &pipeline_config);
     if (g_game.pipeline == PIPELINE_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create hello triangle pipeline");
@@ -93,7 +90,7 @@ void Game_Tick(f32 delta_time)
 
     // TODO the view/projection belongs in a uniform buffer, but descriptor
     // sets are not ported yet, so it is baked into the push constant transform
-    VkExtent2D extent = VulkanRenderer_GetExtent();
+    window_extent_t extent = Renderer_GetWindowExtent();
     mat4 projection = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width,
                                              0.0f, (f32)extent.height, -1.0f, 1.0f);
     mat4 model = HMM_MulM4(HMM_Translate(g_game.position),
@@ -102,13 +99,6 @@ void Game_Tick(f32 delta_time)
     g_game.push_constant.transform = HMM_MulM4(projection, model);
 
     /* draw */
-    draw_command_t draw_command = {
-        .pass = SWAPCHAIN_PASS_HANDLE,
-        .pipeline = g_game.pipeline,
-        .push_constant_data = &g_game.push_constant,
-        .vertex_buffer = g_game.mesh.vertex_buffer,
-        .index_buffer = g_game.mesh.index_buffer,
-        .index_count = g_game.mesh.index_count,
-    };
-    VulkanPass_AddDrawCommand(&draw_command);
+    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.pipeline, &g_game.push_constant,
+                      &g_game.mesh);
 }

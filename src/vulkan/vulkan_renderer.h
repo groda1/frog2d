@@ -6,7 +6,7 @@
 
 #include "memory_arena.h"
 
-#include "vulkan_global.h"
+#include "render_types.h"
 #include "vulkan_pipeline.h"
 
 
@@ -50,7 +50,8 @@ void VulkanRenderer_WaitIdle();
 
 VkExtent2D VulkanRenderer_GetExtent();
 
-pipeline_handle_t VulkanRenderer_AddPipeline(const pipeline_config_t *config);
+pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
+                                             const pipeline_config_t *config);
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size);
 VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count);
