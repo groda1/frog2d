@@ -163,7 +163,7 @@ void Game_Tick(void)
     window_extent_t extent = Renderer_GetWindowExtent();
 
     push_constant_t push_constant;
-    /* update */
+
     quat rotation = HMM_QFromAxisAngle_RH(V3(0.0f, 0.0f, 1.0f),
                                           HMM_AngleDeg(-delta_time * ROT_SPEED_DEG_PER_S));
 
