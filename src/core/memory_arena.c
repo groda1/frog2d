@@ -145,3 +145,25 @@ void *MemoryArena_Push(arena_t *arena, u64 size, u64 align)
 //void MemoryArena_PopTo(arena_t *arena, u64 pos);
 
 //void MemoryArena_Clear(arena_t *arena);
+
+#include <stdio.h>
+void MemoryArena_Print(arena_t *arena)
+{   
+    // TODO replace with log
+    arena_t * current = arena->current;
+
+
+    printf("%s:\n", current->name);
+
+    while (current)
+    {
+        printf("  [reserved=%juKB commit_size=%juKB base_pos=%ju] commited=%juKB pos=%ju\n",
+            current->reserved / KB(1),
+            current->commit_size / KB(1),
+            current->base_pos,
+            current->commited / KB(1),
+            current->pos);
+        
+        current = current->prev;
+    }
+}

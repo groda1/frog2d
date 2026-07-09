@@ -4,7 +4,9 @@
 
 
 #include <stdint.h>
+#include <string.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Types
 typedef uint8_t     u8;
@@ -24,18 +26,18 @@ typedef double      f64;
 #define U64_MAX UINT64_MAX
 
 // Units
-#define KB(n)  (((u64)(n)) << 10)
-#define MB(n)  (((u64)(n)) << 20)
-#define GB(n)  (((u64)(n)) << 30)
-#define TB(n)  (((u64)(n)) << 40)
+#define KB(n) (((u64)(n)) << 10)
+#define MB(n) (((u64)(n)) << 20)
+#define GB(n) (((u64)(n)) << 30)
+#define TB(n) (((u64)(n)) << 40)
 
 // Min/Max/Clamp
-#define Min(A,B) (((A)<(B))?(A):(B))
-#define Max(A,B) (((A)>(B))?(A):(B))
-#define ClampTop(A,X) Min(A,X)
-#define ClampBot(X,B) Max(X,B)
-#define Clamp(A,X,B) (((X)<(A))?(A):((X)>(B))?(B):(X))
-
+#define Min(A, B) (((A) < (B)) ? (A) : (B))
+#define Max(A, B) (((A) > (B)) ? (A) : (B))
+#define ClampTop(A, X) Min(A, X)
+#define ClampBot(X, B) Max(X, B)
+#define Clamp(A, X, B) (((X) < (A)) ? (A) : ((X) > (B)) ? (B) \
+                                                        : (X))
 // Alignment
 #if defined(__clang__)
 #define AlignOf(T) __alignof(T)
@@ -45,17 +47,32 @@ typedef double      f64;
 #error AlignOf not defined for this compiler.
 #endif
 #define AlignPow2(x, b) (((x) + (b) - 1) & (~((b) - 1)))
+#define IsPow2(x) ((x) != 0 && ((x) & ((x) - 1)) == 0)
+
 
 // Branch predictor hints
 #define Expect(expr, val)       __builtin_expect((expr), (val))
-#define Likely(expr)            Expect(expr,1)
-#define Unlikely(expr)          Expect(expr,0)
-
+#define Likely(expr)            Expect(expr, 1)
+#define Unlikely(expr)          Expect(expr, 0)
 
 // Attributes
 #define AttributePacked         __attribute__((packed));
 
 // Assert
 #define StaticAssert            _Static_assert
+
+
+// Memory functions
+#define MemoryCopy(dst, src, size)      memcpy((dst), (src), (size))
+#define MemoryMove(dst, src, size)      memmove((dst), (src), (size))
+#define MemorySet(dst, byte, size)      memset((dst), (byte), (size))
+#define MemoryCompare(a, b, size)       memcmp((a), (b), (size))
+#define MemoryStrlen(ptr)               strlen(ptr)
+
+#define MemoryZero(dst, size)           MemorySet((dst), 0, (size))
+#define MemoryZeroStruct(s)             MemoryZero((s), sizeof(*(s)))
+#define MemoryZeroArray(a)              MemoryZero((a), sizeof(a))
+
+#define MemoryMatch(a, b, z) (MemoryCompare((a), (b), (z)) == 0)
 
 #endif
