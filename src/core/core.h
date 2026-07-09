@@ -104,8 +104,8 @@ typedef double      f64;
 #define MemoryCopyArray(d,s)            MemoryCopy((d),(s),sizeof(d))
 
 #define MemoryZero(dst, size)           MemorySet((dst), 0, (size))
-#define MemoryZeroStruct(s)             MemoryZero((s), sizeof(*(s)))
-#define MemoryZeroArray(a)              MemoryZero((a), sizeof(a))
+#define MemoryZeroItem(dst)             MemoryZero((dst), sizeof(*(dst)))
+#define MemoryZeroArray(arr)            MemoryZero((arr), sizeof(arr))
 
 #define MemoryMatch(a, b, z)            (MemoryCompare((a), (b), (z)) == 0)
 

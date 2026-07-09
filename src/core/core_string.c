@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "core.h"
 
 #include "core_string.h"
 
@@ -66,6 +67,8 @@ bool string_match(string s1, string s2)
 
 void string_copy(string src, string *dst)
 {
+    Assert(dst);
+
     u64 len = Min(strlen((char *)src.str), dst->cap - 1);
 
     MemoryCopy(dst->str, src.str, len);

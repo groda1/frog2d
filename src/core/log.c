@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "core_string.h"
+#include "memory_arena.h"
 #include "log.h"
 
 #define LOG_CAPACITY 8192
@@ -43,7 +44,6 @@ void Log_Init(arena_t *arena)
     logger = l;
 }
 
-
 void Log(log_severity_t severity, const char *log, ...)
 {
     if (!logger)
@@ -60,8 +60,8 @@ void Log(log_severity_t severity, const char *log, ...)
 
     log_entry_t *entry = &logger->entries[logger->tail];
 
-    scratch_t scratch = Scratch_Begin(logger->arena);
-    
+    u64 pos = MemoryArena_Pos(logger->arena);
+
     va_start(args, log);
     string tmp = string_fmtv(logger->arena, log, args);
     va_end(args);
@@ -69,19 +69,18 @@ void Log(log_severity_t severity, const char *log, ...)
 
     if (logger->stdout)
     {
-        string stdout_string = string_fmt(logger->arena, "[%s] %s", severity_map[severity], tmp.str);
+        string stdout_string =
+            string_fmt(logger->arena, "[%s] %s", severity_map[severity], tmp.str);
         printf("%s\n", stdout_string.str);
     }
 
-    Scratch_End(scratch);
-    
+    MemoryArena_PopTo(logger->arena, pos);
+
     entry->severity = severity;
-    
+
     logger->tail++;
     if (logger->tail == logger->capacity)
         logger->tail = 0;
-
-
 }
 
 u64 Log_Count()

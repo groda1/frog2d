@@ -5,7 +5,7 @@
 #include "vulkan_renderer.h"
 
 
-void VulkanPass_CreateSwapchainPass(
+bool VulkanPass_CreateSwapchainPass(
     VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
     swapchain_t *swapchain);
 

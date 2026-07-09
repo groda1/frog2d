@@ -64,7 +64,7 @@ struct _vk_passes_t
 
 static vk_passes_t g_passes = {};
 
-void VulkanPass_CreateSwapchainPass(
+bool VulkanPass_CreateSwapchainPass(
     VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
     swapchain_t *swapchain)
 {
@@ -76,4 +76,5 @@ void VulkanPass_CreateSwapchainPass(
 
     // VulkanImage_CreateDepthResources();
 
+    return true;
 }

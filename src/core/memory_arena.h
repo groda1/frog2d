@@ -57,8 +57,4 @@ void MemoryArena_Clear(arena_t *arena);
 
 void MemoryArena_Print(arena_t *arena);
 
-scratch_t Scratch_Begin(arena_t *arena);
-void Scratch_End(scratch_t scratch);
-
-
 #endif
