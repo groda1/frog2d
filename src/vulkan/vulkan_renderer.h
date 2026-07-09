@@ -29,6 +29,6 @@ bool VulkanRenderer_Destroy();
 void VulkanRenderer_BeginFrame();
 void VulkanRenderer_AddDrawCommand();
 bool VulkanRenderer_EndFrame();
-
+void VulkanRenderer_WaitIdle();
 
 #endif

@@ -138,11 +138,12 @@ bool VulkanRenderer_Destroy()
 {
     if (g_renderer)
     {
+        VulkanRenderer_WaitIdle();
+
         destroy_sync_objects();
 
         VulkanPass_Destroy(g_renderer->device);
 
-        vkDestroySwapchainKHR(g_renderer->device, g_renderer->swapchain.handle, NULL);
         vkDestroyCommandPool(g_renderer->device, g_renderer->command_pool, NULL);
         vkDestroyDevice(g_renderer->device, NULL);
         vkDestroySurfaceKHR(g_renderer->instance, g_renderer->surface, NULL);
@@ -268,6 +269,11 @@ bool VulkanRenderer_EndFrame()
     sync_step();
 
     return true;
+}
+
+void VulkanRenderer_WaitIdle()
+{
+    vkDeviceWaitIdle(g_renderer->device);
 }
 
 static bool create_swapchain(bool vsync)
