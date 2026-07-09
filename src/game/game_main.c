@@ -1,3 +1,4 @@
+#include "HandmadeMath.h"
 #include "core.h"
 #include "core_math.h"
 #include "log.h"
@@ -28,6 +29,13 @@ typedef struct
 
 typedef struct
 {
+    mat4 transform;
+    vec4 color;
+    u32 texture;
+} textured_push_constant_t;
+
+typedef struct
+{
     mat4 view;
     mat4 proj;
 } view_projection_t;
@@ -45,6 +53,13 @@ typedef struct
     quat cube_orientation;
     pipeline_handle_t cube_pipeline;
     buffer_object_handle_t vp_uniform;
+
+    /* textured quad between the cubes */
+    mesh_handle_t quad_mesh;
+    texture_handle_t quad_texture;
+    texture_handle_t font_texture;
+    pipeline_handle_t quad_pipeline;
+    buffer_object_handle_t vp_uniform_ortho;
 } game_t;
 
 static game_t g_game;
@@ -94,6 +109,8 @@ bool Game_Init(SDL_Window *window)
 
     g_game.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
                                                      UNIFORM_STAGE_VERTEX);
+
+
     if (g_game.vp_uniform == BUFFER_OBJECT_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create view projection uniform");
@@ -132,6 +149,77 @@ bool Game_Init(SDL_Window *window)
         return false;
     }
 
+    /* textured quad */
+    g_game.quad_mesh = PREDEFINED_MESH_TEXTURED_QUAD;
+
+    g_game.vp_uniform_ortho = Renderer_CreateUniformBuffer(sizeof(view_projection_t), UNIFORM_STAGE_VERTEX);
+
+    sampler_handle_t sampler = Renderer_CreateSampler();
+    if (sampler == SAMPLER_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create sampler");
+        Engine_Destroy();
+        return false;
+    }
+
+    g_game.quad_texture = Renderer_LoadTexture("resources/textures/test.png", sampler);
+    if (g_game.quad_texture == TEXTURE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to load test texture");
+        Engine_Destroy();
+        return false;
+    }
+
+    g_game.font_texture = Renderer_LoadTexture("resources/textures/font.png", sampler);
+    if (g_game.font_texture == TEXTURE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to load font texture");
+        Engine_Destroy();
+        return false;
+    }
+
+    pipeline_config_t quad_pipeline_config = {
+        .vertex_shader = Renderer_LoadShader("shaders/flat_textured.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/flat_textured.frag.spv"),
+        .push_constant_size = sizeof(textured_push_constant_t),
+        .vertex_stride = sizeof(textured_vertex_t),
+        .vertex_attribute_count = 2,
+        .vertex_attributes = {
+            {
+                .location = 0,
+                .format = VERTEX_FORMAT_F32X3,
+                .offset = offsetof(textured_vertex_t, position),
+            },
+            {
+                .location = 1,
+                .format = VERTEX_FORMAT_F32X2,
+                .offset = offsetof(textured_vertex_t, texture_coord),
+            },
+        },
+        .uniform_binding_count = 1,
+        .uniform_bindings = {
+            {
+                .binding = 0,
+                .buffer_object = g_game.vp_uniform_ortho,
+                .stage = UNIFORM_STAGE_VERTEX,
+            },
+        },
+    };
+
+    g_game.quad_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &quad_pipeline_config);
+    if (g_game.quad_pipeline == PIPELINE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create flat textured pipeline");
+        Engine_Destroy();
+        return false;
+    }
+
+    view_projection_t vp2 = {
+        .view = HMM_M4D(1.0f),
+        .proj = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width, 0.0f, (f32)extent.height, -1.0, 1.0)
+    };
+    Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
+
     return true;
 }
 
@@ -153,6 +241,13 @@ void Game_HandleKeyUp(SDL_Keycode key)
 void Game_HandleResize(u32 width, u32 height)
 {
     Engine_HandleResize(width, height);
+
+    window_extent_t extent = Renderer_GetWindowExtent();
+    view_projection_t vp2 = {
+        .view = HMM_M4D(1.0f),
+        .proj = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width, 0.0f, (f32)extent.height, -1.0, 1.0)
+    };
+    Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
 
 }
 
@@ -208,6 +303,20 @@ void Game_Tick(void)
     cube_push_constant.color = V4(0.5f, 0.9f, 0.2f, 1.0f);
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.cube_pipeline, &cube_push_constant,
                       g_game.cube_mesh);
+
+    /* textured quad */
+    textured_push_constant_t quad_push_constant;
+    quad_push_constant.transform = HMM_MulM4(HMM_Translate(V3(200.0f, 500.0f, 0.0f)), HMM_Scale(V3(200.0f, 200.0f, 1.0f)));
+    quad_push_constant.color = V4(1.0f, 1.0f, 1.0f, 1.0f);
+    quad_push_constant.texture = g_game.quad_texture;
+    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
+                      g_game.quad_mesh);
+
+    quad_push_constant.transform = HMM_MulM4(HMM_Translate(V3(100.0f, 100.0f, 0.0f)), HMM_Scale(V3(100.0f,100.0f,1.0f)));
+    quad_push_constant.color = V4(1.0f, 0.0f, 0.0f, 1.0f);
+    quad_push_constant.texture = g_game.font_texture;
+    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
+                      g_game.quad_mesh);
 
     Engine_EndFrame();
 }

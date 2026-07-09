@@ -24,7 +24,10 @@ subdir('src')
 
 subdir('shaders')
 
+subdir('resources')
+
 shader_depend = declare_dependency (sources: shader_targets)
+resource_depend = declare_dependency (sources: resource_targets)
 
 executable('dcfs',
     sources,
@@ -36,6 +39,7 @@ executable('dcfs',
         sdl3_dep,
         vulkan_dep,
         shader_depend,
+        resource_depend,
     ],
 )
 

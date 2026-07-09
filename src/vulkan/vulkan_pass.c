@@ -8,6 +8,7 @@
 #include "vulkan_image.h"
 #include "vulkan_pipeline.h"
 #include "vulkan_renderer.h"
+#include "vulkan_texture.h"
 
 
 #define MAX_PIPELINES_PER_PASS 64 // TODO: this need be dynamic
@@ -438,19 +439,23 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               pipeline->vk_pipeline);
 
-            if (pipeline->descriptor_sets[image_index] != VK_NULL_HANDLE)
-            {
-                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipeline->layout, 0, 1,
-                                        &pipeline->descriptor_sets[image_index], 0, NULL);
-            }
+            /* set 0 = global bindless textures, set 1 = per-pipeline uniforms */
+            VkDescriptorSet descriptor_sets[] = {
+                VulkanTexture_GetDescriptorSet(),
+                pipeline->descriptor_sets[image_index],
+            };
+            u32 set_count = pipeline->descriptor_sets[image_index] != VK_NULL_HANDLE ? 2 : 1;
+
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline->layout, 0, set_count, descriptor_sets, 0, NULL);
 
             bound_pipeline = pipeline;
         }
 
         if (pipeline->push_constant_size > 0 && command->push_constant_data)
         {
-            vkCmdPushConstants(command_buffer, pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+            vkCmdPushConstants(command_buffer, pipeline->layout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                pipeline->push_constant_size, command->push_constant_data);
         }
 

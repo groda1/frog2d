@@ -6,7 +6,7 @@ shader_targets = []
 foreach s : shader_files
   shader_targets += custom_target(
     'shader @0@'.format(s),
-    command : [glsllang, '-V', '@INPUT@', '-o',  '@OUTPUT@'],
+    command : [glsllang, '--target-env', 'vulkan1.4', '@INPUT@', '-o',  '@OUTPUT@'],
     input : s,
     output : '@PLAINNAME@.spv',
   )

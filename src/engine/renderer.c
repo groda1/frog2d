@@ -3,13 +3,14 @@
 #include <SDL3/SDL_filesystem.h>
 
 #include "file.h"
+#include "image.h"
 #include "mesh_internal.h"
 #include "renderer.h"
 
 #include "vulkan_pass.h"
 #include "vulkan_renderer.h"
 
-#define MAX_SHADER_PATH 512
+#define MAX_RESOURCE_PATH 512
 
 static arena_t *s_arena;
 
@@ -24,13 +25,34 @@ shader_code_t Renderer_LoadShader(const char *path)
 {
     Assert(s_arena != NULL);
 
-    char full_path[MAX_SHADER_PATH];
+    char full_path[MAX_RESOURCE_PATH];
     snprintf(full_path, sizeof(full_path), "%s%s", SDL_GetBasePath(), path);
 
     shader_code_t shader = {0};
     shader.code = File_Read(s_arena, full_path, &shader.size);
 
     return shader;
+}
+
+texture_handle_t Renderer_LoadTexture(const char *path, sampler_handle_t sampler)
+{
+    char full_path[MAX_RESOURCE_PATH];
+    snprintf(full_path, sizeof(full_path), "%s%s", SDL_GetBasePath(), path);
+
+    image_t image;
+    if (!Image_Load(full_path, &image))
+        return TEXTURE_HANDLE_INVALID;
+
+    texture_handle_t texture = VulkanRenderer_CreateTexture(image.width, image.height,
+                                                            image.data, sampler);
+    Image_Unload(&image);
+
+    return texture;
+}
+
+sampler_handle_t Renderer_CreateSampler(void)
+{
+    return VulkanRenderer_CreateSampler();
 }
 
 window_extent_t Renderer_GetWindowExtent(void)

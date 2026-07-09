@@ -6,7 +6,7 @@ layout (push_constant) uniform pushConstants {
     vec4 color;
 } model;
 
-layout(binding = 0) uniform UniformBufferObject {
+layout(set = 1, binding = 0) uniform UniformBufferObject {
     mat4 view;
     mat4 proj;
 } vp;

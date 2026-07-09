@@ -8,12 +8,12 @@ struct instance_data {
     vec4 color;
 };
 
-layout(binding = 0) uniform UniformBufferObject {
+layout(set = 1, binding = 0) uniform UniformBufferObject {
     mat4 view;
     mat4 proj;
 } vp;
 
-layout(std430, binding = 2) buffer StorageBufferObject {
+layout(std430, set = 1, binding = 2) buffer StorageBufferObject {
     instance_data instances[];
 } text_data;
 

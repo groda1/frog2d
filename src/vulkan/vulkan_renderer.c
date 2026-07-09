@@ -11,6 +11,7 @@
 #include "vulkan_buffer.h"
 #include "vulkan_image.h"
 #include "vulkan_pass.h"
+#include "vulkan_texture.h"
 
 #define APPLICATION_NAME    "todo"
 #define APPLICATION_VERSION VK_MAKE_VERSION(0, 0, 1)
@@ -137,6 +138,8 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
         goto fail;
     if (!VulkanBuffer_Init())
         goto fail;
+    if (!VulkanTexture_Init())
+        goto fail;
     if (!VulkanPass_CreateSwapchainPass(s_renderer->global_arena, &s_renderer->swapchain))
         goto fail;
 
@@ -168,6 +171,7 @@ bool VulkanRenderer_Destroy()
         destroy_swapchain();
 
         VulkanBuffer_Destroy();
+        VulkanTexture_Destroy();
 
         vkDestroyCommandPool(g_device, s_renderer->command_pool, NULL);
         vkDestroyDevice(g_device, NULL);
@@ -375,6 +379,19 @@ bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *d
     return VulkanBuffer_SetObjectData(handle, data, size);
 }
 
+texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
+                                              sampler_handle_t sampler)
+{
+    return VulkanTexture_Create(s_renderer->command_pool,
+                                s_renderer->queue_families.graphics_queue, width, height,
+                                rgba_data, sampler);
+}
+
+sampler_handle_t VulkanRenderer_CreateSampler()
+{
+    return VulkanTexture_CreateSampler();
+}
+
 static bool create_swapchain(bool vsync)
 {
     VkSurfaceCapabilitiesKHR capabilities;
@@ -389,8 +406,6 @@ static bool create_swapchain(bool vsync)
             &format_count, formats) != VK_SUCCESS)
         return false;
 
-
-    Log(DEBUG, "format count %d", format_count);
 
     /* choose a swapchain surface format */
     VkSurfaceFormatKHR format = {0};
@@ -627,7 +642,7 @@ static bool create_instance()
         .applicationVersion = APPLICATION_VERSION,
         .pEngineName = ENGINE_NAME,
         .engineVersion = ENGINE_VERSION,
-        .apiVersion = VK_API_VERSION_1_0,
+        .apiVersion = VK_API_VERSION_1_4,
     };
 
     VkInstanceCreateInfo create_info = {0};
@@ -715,20 +730,28 @@ static bool setup_physical_device()
             - DEVICE_EXTENSIONS
         Check for swap chain support
         Check for anisotropic filtering
+        Check for the descriptor indexing features
          */
-        if (true)
-        {
-            VkPhysicalDeviceProperties properties;
-            g_physical_device = physical_devices[i];
-            vkGetPhysicalDeviceProperties(g_physical_device, &properties);
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
 
-            Log(INFO, "picked physical device: %d %s [%d.%d.%d]",
-                properties.deviceID, properties.deviceName,
-                VK_API_VERSION_MAJOR(properties.driverVersion),
-                VK_API_VERSION_MINOR(properties.driverVersion),
-                VK_API_VERSION_PATCH(properties.driverVersion));
-            break;
+        if (properties.apiVersion < VK_API_VERSION_1_4)
+        {
+            Log(WARNING, "skipping physical device %s: vulkan %d.%d < 1.4",
+                properties.deviceName,
+                VK_API_VERSION_MAJOR(properties.apiVersion),
+                VK_API_VERSION_MINOR(properties.apiVersion));
+            continue;
         }
+
+        g_physical_device = physical_devices[i];
+
+        Log(INFO, "picked physical device: %d %s [vulkan %d.%d.%d]",
+            properties.deviceID, properties.deviceName,
+            VK_API_VERSION_MAJOR(properties.apiVersion),
+            VK_API_VERSION_MINOR(properties.apiVersion),
+            VK_API_VERSION_PATCH(properties.apiVersion));
+        break;
     }
 
     if (!g_physical_device)
@@ -858,11 +881,22 @@ static bool create_logical_device()
         }
     }
 
-    const char *extensions[] = {"VK_KHR_swapchain", "VK_KHR_maintenance1"};
+    const char *extensions[] = {"VK_KHR_swapchain"};
     VkPhysicalDeviceFeatures features = {.samplerAnisotropy = true};
+
+    /* bindless textures: one global runtime-sized descriptor array that
+       stays bound while texture slots are written at load time */
+    VkPhysicalDeviceVulkan12Features features12 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .shaderSampledImageArrayNonUniformIndexing = true,
+        .descriptorBindingSampledImageUpdateAfterBind = true,
+        .descriptorBindingPartiallyBound = true,
+        .runtimeDescriptorArray = true,
+    };
 
     VkDeviceCreateInfo device_create = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &features12,
         .pQueueCreateInfos = queue_creates,
         .queueCreateInfoCount = queue_create_count,
         .ppEnabledExtensionNames = extensions,

@@ -5,4 +5,5 @@ vulkan_sources += files(
     'vulkan_buffer.c',
     'vulkan_image.c',
     'vulkan_memory.c',
+    'vulkan_texture.c',
 )

@@ -12,6 +12,10 @@ window_extent_t Renderer_GetWindowExtent(void);
 
 shader_code_t Renderer_LoadShader(const char *path);
 
+/* the returned handle indexes the global texture array in shaders */
+texture_handle_t Renderer_LoadTexture(const char *path, sampler_handle_t sampler);
+sampler_handle_t Renderer_CreateSampler(void);
+
 pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
                                        const pipeline_config_t *config);
 

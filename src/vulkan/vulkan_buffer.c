@@ -101,20 +101,8 @@ VkBuffer VulkanBuffer_CreateStatic(VkCommandPool command_pool, VkQueue submit_qu
 
     VkBuffer staging_buffer;
     VkDeviceMemory staging_memory;
-    if (!create_vulkan_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                             &staging_buffer, &staging_memory))
+    if (!VulkanBuffer_CreateStaging(data, size, &staging_buffer, &staging_memory))
         return VK_NULL_HANDLE;
-
-    void *mapped;
-    if (vkMapMemory(g_device, staging_memory, 0, size, 0, &mapped) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to map staging buffer memory");
-        goto exit;
-    }
-    MemoryCopy(mapped, data, size);
-    vkUnmapMemory(g_device, staging_memory);
 
     VkBuffer buffer;
     VkDeviceMemory memory;
@@ -145,6 +133,34 @@ exit:
 
 
     return static_buffer;
+}
+
+bool VulkanBuffer_CreateStaging(const void *data, u64 size, VkBuffer *buffer_out,
+                                VkDeviceMemory *memory_out)
+{
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    if (!create_vulkan_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                              &buffer, &memory))
+        return false;
+
+    void *mapped;
+    if (vkMapMemory(g_device, memory, 0, size, 0, &mapped) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to map staging buffer memory");
+        vkDestroyBuffer(g_device, buffer, NULL);
+        vkFreeMemory(g_device, memory, NULL);
+        return false;
+    }
+    MemoryCopy(mapped, data, size);
+    vkUnmapMemory(g_device, memory);
+
+    *buffer_out = buffer;
+    *memory_out = memory;
+
+    return true;
 }
 
 buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,

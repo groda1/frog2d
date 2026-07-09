@@ -4,16 +4,6 @@ subdir('vulkan')
 subdir('engine')
 subdir('game')
 
-incdir = include_directories(
-  'core',
-  'core/types',
-  'vulkan',
-  'engine',
-  'game',
-  'third_party/xxHash',
-  'third_party/HandmadeMath',
-)
-
 core_inc = include_directories(
   'core',
   'core/types',
@@ -23,6 +13,7 @@ core_inc = include_directories(
 vulkan_inc = include_directories('vulkan')
 engine_inc = include_directories('engine')
 game_inc = include_directories('game')
+stb_inc = include_directories('third_party/stb')
 
 sdl3_dep = dependency('sdl3')
 vulkan_dep = dependency('vulkan')
@@ -37,7 +28,7 @@ vulkan_lib = static_library('vulkan', vulkan_sources,
 )
 
 engine_lib = static_library('engine', engine_sources,
-    include_directories : [core_inc, engine_inc, vulkan_inc],
+    include_directories : [core_inc, engine_inc, vulkan_inc, stb_inc],
     dependencies : [sdl3_dep, vulkan_dep],
 )
 

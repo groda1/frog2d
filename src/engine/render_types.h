@@ -8,6 +8,8 @@
 #define SWAPCHAIN_PASS_HANDLE   U32_MAX
 #define PIPELINE_HANDLE_INVALID U32_MAX
 #define BUFFER_OBJECT_HANDLE_INVALID U32_MAX
+#define TEXTURE_HANDLE_INVALID  U32_MAX
+#define SAMPLER_HANDLE_INVALID  U32_MAX
 
 #define MAX_VERTEX_ATTRIBUTES 8
 #define MAX_UNIFORM_BINDINGS  4
@@ -15,6 +17,8 @@
 typedef u32 renderpass_handle_t;
 typedef u32 pipeline_handle_t;
 typedef u32 buffer_object_handle_t;
+typedef u32 texture_handle_t;
+typedef u32 sampler_handle_t;
 
 typedef struct
 {
@@ -69,7 +73,11 @@ struct _pipeline_config_t
     shader_code_t vertex_shader;
     shader_code_t fragment_shader;
 
-    u32 push_constant_size; // 0 = no push constants; vertex stage only for now
+    u32 push_constant_size; // 0 = no push constants; visible to vertex and fragment stages
+
+    /* textures need no pipeline configuration: every pipeline can sample any
+       texture through the global descriptor array, indexed by texture handle
+       (e.g. via a push constant) */
 
     u32 vertex_stride;
     u32 vertex_attribute_count;
@@ -80,7 +88,7 @@ struct _pipeline_config_t
 
     bool alpha_blending;
 
-    // TODO samplers / storage buffer bindings
+    // TODO storage buffer bindings
     // TODO vertex topology (always triangle list for now)
 };
 

@@ -4,6 +4,7 @@
 #include "vulkan_buffer.h"
 #include "vulkan_context.h"
 #include "vulkan_pipeline.h"
+#include "vulkan_texture.h"
 
 static VkFormat vertex_format_to_vk(vertex_format_t format);
 static VkShaderStageFlags uniform_stage_to_vk(uniform_stage_t stage);
@@ -137,17 +138,24 @@ bool VulkanPipeline_Create(VkRenderPass render_pass, const pipeline_config_t *co
     };
 
     VkPushConstantRange push_constant_range = {
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         .offset = 0,
         .size = config->push_constant_size,
+    };
+
+    /* set 0 is always the global bindless texture array so it stays
+       compatible across all pipelines; per-pipeline uniforms live in set 1 */
+    VkDescriptorSetLayout set_layouts[] = {
+        VulkanTexture_GetDescriptorSetLayout(),
+        pipeline_out->descriptor_set_layout,
     };
 
     VkPipelineLayoutCreateInfo layout_create_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pushConstantRangeCount = config->push_constant_size > 0 ? 1U : 0U,
         .pPushConstantRanges = &push_constant_range,
-        .setLayoutCount = pipeline_out->descriptor_set_layout != VK_NULL_HANDLE ? 1U : 0U,
-        .pSetLayouts = &pipeline_out->descriptor_set_layout,
+        .setLayoutCount = pipeline_out->descriptor_set_layout != VK_NULL_HANDLE ? 2U : 1U,
+        .pSetLayouts = set_layouts,
     };
 
     if (vkCreatePipelineLayout(g_device, &layout_create_info, NULL, &layout) != VK_SUCCESS)

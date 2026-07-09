@@ -32,4 +32,8 @@ VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_co
 buffer_object_handle_t VulkanRenderer_CreateUniformBuffer(u64 size, uniform_stage_t stage);
 bool VulkanRenderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size);
 
+texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
+                                              sampler_handle_t sampler);
+sampler_handle_t VulkanRenderer_CreateSampler();
+
 #endif

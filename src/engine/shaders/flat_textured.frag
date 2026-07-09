@@ -4,10 +4,11 @@
 
 layout(set = 0, binding = 0) uniform sampler2D textures[];
 
-// provisional push constant layout; revisit when text rendering is ported
 layout (push_constant) uniform pushConstants {
+    mat4 transform;
+    vec4 color;
     uint textureIndex;
-} pc;
+} model;
 
 layout(location = 0) flat in vec4 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
@@ -15,6 +16,5 @@ layout(location = 1) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec4 texColor = texture(textures[pc.textureIndex], fragTexCoord);
-    outColor = texColor * vec4(fragColor.x, fragColor.y, fragColor.z, texColor.x * fragColor.a);
+    outColor = texture(textures[model.textureIndex], fragTexCoord) * fragColor;
 }
