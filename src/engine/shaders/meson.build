@@ -1,4 +1,6 @@
 shader_files += files(
+    '2d_color_ssbo.frag',
+    '2d_color_ssbo.vert',
     '2d_text_ssbo.frag',
     '2d_text_ssbo.vert',
     'flat_color.frag',

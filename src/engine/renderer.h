@@ -30,6 +30,8 @@ buffer_object_handle_t Renderer_CreateStorageBuffer(u64 capacity);
    gpu buffers over the next frames; the pointer only needs to stay valid for
    the duration of the call */
 bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u64 size);
+bool Renderer_ClearBufferObject(buffer_object_handle_t handle);
+bool Renderer_PushBufferObject(buffer_object_handle_t handle, const void *data, u64 size);
 
 /* push constant data is copied; the pointer only needs to stay valid for the
    duration of the call */

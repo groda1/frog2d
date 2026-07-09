@@ -248,7 +248,7 @@ bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data,
 
 bool VulkanBuffer_ClearObjectData(buffer_object_handle_t handle)
 {
-    if (handle == BUFFER_OBJECT_HANDLE_INVALID)
+    if (handle == BUFFER_OBJECT_HANDLE_INVALID || handle > s_buffers.buffer_object_count)
     {
         Log(ERROR, "invalid buffer object handle %u", handle);
         return false;
@@ -260,6 +260,27 @@ bool VulkanBuffer_ClearObjectData(buffer_object_handle_t handle)
 
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         object->dirty[i] = true;
+
+    return true;
+}
+
+bool VulkanBuffer_PushObjectData(buffer_object_handle_t handle, const void *data, u64 size)
+{
+    if (handle == BUFFER_OBJECT_HANDLE_INVALID || handle > s_buffers.buffer_object_count)
+    {
+        Log(ERROR, "invalid buffer object handle %u", handle);
+        return false;
+    }
+
+    buffer_object_t *object = get_buffer_object(handle);
+    if (object->cpu_buf_len + size > object->capacity)
+    {
+        Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", object->cpu_buf_len + size, object->capacity);
+        return false;
+    }
+
+    MemoryCopy(object->cpu_buf + object->cpu_buf_len, data, size);
+    object->cpu_buf_len += size;
 
     return true;
 }

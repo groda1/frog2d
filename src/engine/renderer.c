@@ -87,6 +87,15 @@ bool Renderer_SetBufferObject(buffer_object_handle_t handle, const void *data, u
     return VulkanBuffer_SetObjectData(handle, data, size);
 }
 
+bool Renderer_ClearBufferObject(buffer_object_handle_t handle)
+{
+    return VulkanBuffer_ClearObjectData(handle);
+}
+bool Renderer_PushBufferObject(buffer_object_handle_t handle, const void *data, u64 size)
+{
+    return VulkanBuffer_PushObjectData(handle, data, size);
+}
+
 void Renderer_DrawMesh(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
                        const void *push_constant_data, mesh_handle_t mesh_handle)
 {

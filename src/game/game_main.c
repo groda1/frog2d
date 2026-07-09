@@ -9,7 +9,7 @@
 #include "game_main.h"
 #include "mesh.h"
 #include "renderer.h"
-#include "text.h"
+#include "draw.h"
 
 /* port of the vulkrap hello_krap example: a wobbling triangle */
 
@@ -316,12 +316,15 @@ void Game_Tick(void)
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
                       g_game.quad_mesh);
 
+    Draw_SetTextSize(64);
+    Draw_Text(800, 500, string_lit("test 123 !# <foobar>"));
+    Draw_Text(800, 440, string_lit("WTF!!!!"));
+    Draw_SetTextSize(16);
 
-    Text_SetSize(64);
-    Text_Draw(800, 500, string_lit("test 123 !# <foobar>"));
-    Text_Draw(800, 440, string_lit("WTF!!!!"));
-    Text_SetSize(8);
-    Text_Draw(0, 1080 - 16, string_lit("WTF!!!!"));
+
+    Draw_Quad(8, 1080 - 40, 200, 32, V4(0.2, 0.8, 0.2, 1.0));
+    Draw_Quad(2, 2, 200, 200, V4(1.0, 0.8, 0.2, 1.0));
+    Draw_Text(8, 1080 - 32 - 8, string_lit("WTF!!!!"));
 
     Engine_EndFrame();
 }
