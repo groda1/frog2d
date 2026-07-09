@@ -16,10 +16,6 @@
 typedef struct _swapchain_target_t swapchain_target_t;
 struct _swapchain_target_t
 {
-    VkSwapchainKHR  swapchain_handle; // TODO: needed?
-
-    VkImageView     color_imageviews[MAX_FRAMES_IN_FLIGHT];
-
     VkImage         depth_image;
     VkImageView     depth_image_view;
     VkDeviceMemory  depth_image_memory;
@@ -148,9 +144,6 @@ bool VulkanPass_CreateSwapchainPass(
         Log(ERROR, "failed to create swapchain framebuffers");
         return false;
     }
-
-    target->swapchain_handle = swapchain->handle;
-    MemoryCopyArray(target->color_imageviews, swapchain->image_views);
 
     pass.handle = SWAPCHAIN_PASS_HANDLE;
     pass.extent = swapchain->extent;
@@ -406,13 +399,7 @@ static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target
     vkDestroyImage(device, target->depth_image, NULL);
     vkFreeMemory(device, target->depth_image_memory, NULL);
 
-    /* color buffers */
-    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        vkDestroyImageView(device, target->color_imageviews[i], NULL);
-
     /* framebuffers */
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         vkDestroyFramebuffer(device, target->framebuffers[i], NULL);
-
-    vkDestroySwapchainKHR(device, target->swapchain_handle, NULL);
 }

@@ -90,6 +90,7 @@ static vk_renderer_t *g_renderer;
 static VkBuffer create_static_buffer(const void *data, u64 size, VkBufferUsageFlags usage);
 static bool copy_buffer_sync(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 static bool create_swapchain(bool vsync);
+static void destroy_swapchain();
 static bool create_sync_objects();
 static void destroy_sync_objects();
 static bool query_instance_layer_support(string layer_name);
@@ -119,6 +120,7 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 
     g_renderer->global_arena =      arena;
     g_renderer->frame_arena =       MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
+    g_renderer->swapchain_arena =   MemoryArena_CreateP("swapchain-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
 
@@ -159,6 +161,8 @@ bool VulkanRenderer_Destroy()
         destroy_sync_objects();
 
         VulkanPass_Destroy(g_renderer->device);
+
+        destroy_swapchain();
 
         for (u32 i = 0; i < g_renderer->static_buffer_count; i++)
         {
@@ -547,6 +551,18 @@ static bool create_swapchain(bool vsync)
     g_renderer->swapchain.format = format.format;
 
     return true;
+}
+
+static void destroy_swapchain()
+{
+    swapchain_t *swapchain = &g_renderer->swapchain;
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        vkDestroyImageView(g_renderer->device, swapchain->image_views[i], NULL);
+
+    vkDestroySwapchainKHR(g_renderer->device, swapchain->handle, NULL);
+
+    MemoryZeroItem(swapchain);
 }
 
 static bool create_sync_objects()
