@@ -15,9 +15,9 @@ typedef struct
     arena_t *arena;
     hash_map_t meshes;
     mesh_handle_t next_handle;
-} mesh_manager_t;
+} mesh_collection_t;
 
-static mesh_manager_t *g_mesh_manager;
+static mesh_collection_t *s_meshes;
 
 static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size);
 static VkBuffer create_static_index_buffer(const u32 *indices, u32 index_count);
@@ -27,10 +27,10 @@ static void load_predefined_meshes(void);
 
 bool MeshManager_Init(arena_t *arena)
 {
-    g_mesh_manager = arena_push(arena, mesh_manager_t);
-    g_mesh_manager->arena = arena;
-    g_mesh_manager->meshes = HashMap_Create(arena, MESH_MAP_BUCKET_COUNT);
-    g_mesh_manager->next_handle = MESH_START_HANDLE;
+    s_meshes = arena_push(arena, mesh_collection_t);
+    s_meshes->arena = arena;
+    s_meshes->meshes = HashMap_Create(arena, MESH_MAP_BUCKET_COUNT);
+    s_meshes->next_handle = MESH_START_HANDLE;
 
     load_predefined_meshes();
 
@@ -39,7 +39,7 @@ bool MeshManager_Init(arena_t *arena)
 
 mesh_t *MeshManager_GetMesh(mesh_handle_t handle)
 {
-    mesh_t *mesh = HashMap_U32Ptr_Get(&g_mesh_manager->meshes, handle);
+    mesh_t *mesh = HashMap_U32Ptr_Get(&s_meshes->meshes, handle);
     AssertAlways(mesh != NULL);
 
     return mesh;
@@ -69,7 +69,7 @@ mesh_handle_t MeshManager_LoadMesh(string path)
         if (!load_obj_mesh(path, &mesh))
             return MESH_INVALID_HANDLE;
 
-        mesh_handle_t handle = g_mesh_manager->next_handle++;
+        mesh_handle_t handle = s_meshes->next_handle++;
         insert_mesh(handle, mesh.vertex_buffer, mesh.index_buffer, mesh.index_count);
 
         return handle;
@@ -106,12 +106,12 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
 
 static mesh_t *insert_mesh(mesh_handle_t handle, VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count)
 {
-    mesh_t *mesh = arena_push(g_mesh_manager->arena, mesh_t);
+    mesh_t *mesh = arena_push(s_meshes->arena, mesh_t);
     mesh->vertex_buffer = vertex_buffer;
     mesh->index_buffer = index_buffer;
     mesh->index_count = index_count;
 
-    HashMap_U32Ptr_Insert(&g_mesh_manager->meshes, handle, mesh);
+    HashMap_U32Ptr_Insert(&s_meshes->meshes, handle, mesh);
 
     return mesh;
 }

@@ -75,11 +75,6 @@ struct _pipeline_config_t
 
     u32 push_constant_size; // 0 = no push constants; visible to vertex and fragment stages
 
-    /* textures and storage buffers need no pipeline configuration: textures
-       are sampled through the global descriptor array indexed by texture
-       handle, and storage buffers are reached through their device address
-       in the push constant (see Renderer_DrawMeshInstanced) */
-
     u32 vertex_stride;
     u32 vertex_attribute_count;
     vertex_attribute_t vertex_attributes[MAX_VERTEX_ATTRIBUTES];

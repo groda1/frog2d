@@ -53,7 +53,7 @@ typedef struct
 
 typedef struct
 {
-    u64 instance_data; /* storage buffer device address, written by the renderer */
+    u64 __instance_data_address; /* storage buffer device address, filled in by the renderer */
     u32 texture;
 } text_push_constant_t;
 
