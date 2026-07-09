@@ -33,7 +33,8 @@ typedef struct
 
 } log_t;
 
-void Log_Init(arena_t *arena);
+void Log_Init(void);
+void Log_Destroy(void);
 
 
 void Log(log_severity_t severity, const char *log, ...);

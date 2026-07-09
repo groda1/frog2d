@@ -3,10 +3,7 @@
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_error.h>
 
-#include "memory_arena.h"
-
 #include "log.h"
-#include "vulkan_renderer.h"
 #include "engine_main.h"
 
 
@@ -19,9 +16,7 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    arena_t *main_arena = MemoryArena_Create("main-arena");
-
-    Log_Init(main_arena);
+    Log_Init();
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
@@ -41,7 +36,7 @@ int main(int argc, char **argv)
     }
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
-    if (!VulkanRenderer_Init(main_arena, window))
+    if (!Engine_Init(window))
         goto exit;
 
     SDL_ShowWindow(window);
@@ -74,14 +69,13 @@ int main(int argc, char **argv)
         Engine_Tick();
     }
 
-    VulkanRenderer_Destroy();
+    Engine_Destroy();
 
 exit:
     SDL_DestroyWindow(window);
     SDL_Quit();
 
-    MemoryArena_Print(main_arena);
-    MemoryArena_Destroy(main_arena);
+    Log_Destroy();
 
     return 0;
 }

@@ -2,10 +2,36 @@
 
 #include "core.h"
 #include "log.h"
+#include "memory_arena.h"
 
 #include "engine_main.h"
 #include "game_main.h"
 #include "vulkan_renderer.h"
+
+static arena_t *g_engine_arena;
+
+bool Engine_Init(SDL_Window *window)
+{
+    g_engine_arena = MemoryArena_Create("engine-arena");
+
+    if (!VulkanRenderer_Init(g_engine_arena, window))
+    {
+        MemoryArena_Destroy(g_engine_arena);
+        g_engine_arena = NULL;
+        return false;
+    }
+
+    return true;
+}
+
+void Engine_Destroy(void)
+{
+    VulkanRenderer_Destroy();
+
+    MemoryArena_Print(g_engine_arena);
+    MemoryArena_Destroy(g_engine_arena);
+    g_engine_arena = NULL;
+}
 
 void Engine_HandleKeyDown(SDL_Keycode key)
 {

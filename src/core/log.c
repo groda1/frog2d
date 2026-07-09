@@ -7,7 +7,7 @@
 #define LOG_CAPACITY 8192
 #define MAX_ENTRY_LENGTH 80
 
-static log_t *logger = NULL;
+static log_t *s_logger = NULL;
 
 StaticAssert(IsPow2(LOG_CAPACITY), "bad capacity");
 
@@ -19,11 +19,12 @@ static const char *const severity_map[] =
         [ERROR] = "ERROR",
 };
 
-void Log_Init(arena_t *arena)
+void Log_Init(void)
 {
-    if (logger)
+    if (s_logger)
         return;
 
+    arena_t *arena = MemoryArena_Create("log-arena");
     log_t *l = arena_push(arena, log_t);
 
     l->arena = arena;
@@ -41,51 +42,61 @@ void Log_Init(arena_t *arena)
         l->entries[i].text = string_new(arena, MAX_ENTRY_LENGTH);
     }
 
-    logger = l;
+    s_logger = l;
+}
+
+void Log_Destroy(void)
+{
+    if (!s_logger)
+        return;
+
+    MemoryArena_Print(s_logger->arena);
+    MemoryArena_Destroy(s_logger->arena);
+    s_logger = NULL;
 }
 
 void Log(log_severity_t severity, const char *log, ...)
 {
-    if (!logger)
+    if (!s_logger)
         return;
 
     va_list args;
 
-    if (Log_Count() >= (logger->capacity - 1))
+    if (Log_Count() >= (s_logger->capacity - 1))
     {
-        logger->head++;
-        if (logger->head == logger->capacity)
-            logger->head = 0;
+        s_logger->head++;
+        if (s_logger->head == s_logger->capacity)
+            s_logger->head = 0;
     }
 
-    log_entry_t *entry = &logger->entries[logger->tail];
+    log_entry_t *entry = &s_logger->entries[s_logger->tail];
 
-    u64 pos = MemoryArena_Pos(logger->arena);
+    u64 pos = MemoryArena_Pos(s_logger->arena);
 
     va_start(args, log);
-    string tmp = string_fmtv(logger->arena, log, args);
+    string tmp = string_fmtv(s_logger->arena, log, args);
     va_end(args);
     string_copy(tmp, &entry->text);
 
-    if (logger->stdout)
+    if (s_logger->stdout)
     {
         string stdout_string =
-            string_fmt(logger->arena, "[%s] %s", severity_map[severity], tmp.str);
+            string_fmt(s_logger->arena, "[%s] %s", severity_map[severity], tmp.str);
         printf("%s\n", stdout_string.str);
     }
 
-    MemoryArena_PopTo(logger->arena, pos);
+    MemoryArena_PopTo(s_logger->arena, pos);
 
     entry->severity = severity;
 
-    logger->tail++;
-    if (logger->tail == logger->capacity)
-        logger->tail = 0;
+    s_logger->tail++;
+    if (s_logger->tail == s_logger->capacity)
+        s_logger->tail = 0;
 }
 
 u64 Log_Count()
 {
-    return (logger->tail - logger->head) & logger->mask;
+    return (s_logger->tail - s_logger->head) & s_logger->mask;
 }
 
 log_entry_t *Log_Get(u64 index)
@@ -93,12 +104,12 @@ log_entry_t *Log_Get(u64 index)
     if (index >= Log_Count())
         return NULL;
 
-    u64 i = logger->head + index;
+    u64 i = s_logger->head + index;
 
-    if (i >= logger->capacity)
+    if (i >= s_logger->capacity)
     {
-        i -= logger->capacity;
+        i -= s_logger->capacity;
     }
 
-    return &logger->entries[i];
+    return &s_logger->entries[i];
 }
