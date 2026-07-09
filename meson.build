@@ -1,8 +1,9 @@
 project('frog2d', 'c',
         default_options: [
             'buildtype=debugoptimized',
+            'optimization=3',
             'c_std=c23',
-            'warning_level=everything',
+            'warning_level=3',
             'werror=true'
         ]
 )

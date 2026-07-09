@@ -91,8 +91,8 @@ void *MemoryArena_Push(arena_t *arena, u64 size, u64 align)
     // Reserve new block if needed
     if (pos_post > current->reserved)
     {
-        u64 reserve_size = current->reserve_size;
-        u64 commit_size = current->commit_size;
+        u64 reserve_size = arena->reserve_size;
+        u64 commit_size = arena->commit_size;
 
         if (size + ARENA_HEADER_SIZE > reserve_size)
         {

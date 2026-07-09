@@ -60,7 +60,7 @@ typedef double      f64;
 #define AttributePacked         __attribute__((packed));
 
 // Assert
-#define StaticAssert            _Static_assert
+#define StaticAssert            static_assert
 
 #define Trap() __builtin_trap()
 #define AssertAlways(x) \

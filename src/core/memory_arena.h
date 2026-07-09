@@ -14,7 +14,7 @@
 #define arena_push(a, T) arena_push_array(a, T, 1)
 #define arena_push_no_zero(a, T) arena_push_array_no_zero(a, T, 1)
 
-#define MEMORY_ARENA_DEFAULT_RESERVE_SIZE MB(64)
+#define MEMORY_ARENA_DEFAULT_RESERVE_SIZE MB(4)
 #define MEMORY_ARENA_DEFAULT_COMMIT_SIZE KB(64)
 
 typedef struct
