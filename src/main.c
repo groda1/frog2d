@@ -1,20 +1,56 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+#include <SDL3/SDL_error.h>
 
 #include "frog2d_core.h"
 
 int main(int argc, char **argv)
 {
-    printf("Hello there.\n");
+    (void)argc;
+    (void)argv;
 
 
-    u32 a = 1337;
-
-    s32 b = 123;
-
-    if (a < b)
-    {
-        printf("kek\n");
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        printf("Failed to init SDL: %s\n", SDL_GetError());
+        return EXIT_FAILURE;
     }
 
-    return 0;
+    SDL_Window *window = SDL_CreateWindow("frog2d test", 800, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    if (!window)
+    {
+        printf("Failed to create window: %s\n", SDL_GetError());
+
+        SDL_Quit();
+        return EXIT_FAILURE;
+    }
+
+    SDL_Event event;
+    int m_running = 1;
+    while (m_running)
+    {
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_EVENT_QUIT)
+            {
+                m_running = false;
+            }
+            if (event.type == SDL_EVENT_KEY_DOWN)
+            {
+                if (event.key.key == SDLK_ESCAPE)
+                {
+                    m_running = false;
+                }
+            }
+        }
+    }
+
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+
+    return EXIT_SUCCESS;
+
 }
