@@ -1,4 +1,0 @@
-
-sources += files(
-    'log.c',
-)

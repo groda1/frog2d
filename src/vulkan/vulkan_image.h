@@ -5,12 +5,8 @@
 
 #include "core.h"
 
-VkImageView VulkanImage_CreateView(
-    VkDevice device,
-    VkImage image,
-    VkFormat format,
-    VkImageAspectFlags aspect_flags,
-    u32 mip_levels
-);
+bool VulkanImage_CreateView(VkDevice device, VkImage image, VkFormat format,
+                            VkImageAspectFlags aspect_flags, u32 mip_levels,
+                            VkImageView *image_view);
 
 #endif

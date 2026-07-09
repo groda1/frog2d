@@ -1,3 +1,4 @@
+#include <SDL3/SDL_video.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -29,27 +30,31 @@ int main(int argc, char **argv)
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
-        printf("Failed to init SDL: %s\n", SDL_GetError());
+        Log(ERROR, "Failed to init SDL: %s\n", SDL_GetError());
         return EXIT_FAILURE;
     }
 
-    SDL_Window *window = SDL_CreateWindow("frog2d test", DEFAULT_WIDTH, DEFAULT_HEIGHT, 
-        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    SDL_Window *window = SDL_CreateWindow(
+        "frog2d test", DEFAULT_WIDTH, DEFAULT_HEIGHT,
+        SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE);
     if (!window)
     {
-        printf("Failed to create window: %s\n", SDL_GetError());
+        Log(ERROR, "Failed to create window: %s\n", SDL_GetError());
 
         SDL_Quit();
         return EXIT_FAILURE;
     }
+    SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
     if (!VulkanRenderer_Init(main_arena, window))
         goto _exit;
 
-    SDL_Event event;
+    SDL_ShowWindow(window);
+
     bool m_running = true;
     while (m_running)
     {
+        SDL_Event event;
         while (SDL_PollEvent(&event))
         {
             if (event.type == SDL_EVENT_QUIT)
