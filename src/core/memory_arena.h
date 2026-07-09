@@ -4,13 +4,13 @@
 
 #include "core.h"
 
-#define ARENA_HEADER_SIZE 128
+#define ARENA_HEADER_SIZE 128U
 
 #define __push_array_no_zero_aligned(a, T, c, align) (T *)MemoryArena_Push((a), sizeof(T)*(c), (align))
 #define __push_array_aligned(a, T, c, align) (T *)MemoryZero(__push_array_no_zero_aligned(a, T, c, align), sizeof(T)*(c))
 
-#define arena_push_array(a, T, c) __push_array_aligned(a, T, c, Max(8, AlignOf(T)))
-#define arena_push_array_no_zero(a, T, c) __push_array_no_zero_aligned(a, T, c, Max(8, AlignOf(T)))
+#define arena_push_array(a, T, c) __push_array_aligned(a, T, c, Max(8U, AlignOf(T)))
+#define arena_push_array_no_zero(a, T, c) __push_array_no_zero_aligned(a, T, c, Max(8U, AlignOf(T)))
 #define arena_push(a, T) arena_push_array(a, T, 1)
 #define arena_push_no_zero(a, T) arena_push_array_no_zero(a, T, 1)
 

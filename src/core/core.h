@@ -32,13 +32,7 @@ typedef double      f64;
 #define GB(n) (((u64)(n)) << 30)
 #define TB(n) (((u64)(n)) << 40)
 
-// Min/Max/Clamp
-#define Min(A, B) (((A) < (B)) ? (A) : (B))
-#define Max(A, B) (((A) > (B)) ? (A) : (B))
-#define ClampTop(A, X) Min(A, X)
-#define ClampBot(X, B) Max(X, B)
-#define Clamp(A, X, B) (((X) < (A)) ? (A) : ((X) > (B)) ? (B) \
-                                                        : (X))
+
 // Alignment
 #if defined(__clang__)
 #define AlignOf(T) __alignof(T)
@@ -49,6 +43,30 @@ typedef double      f64;
 #endif
 #define AlignPow2(x, b) (((x) + (b) - 1) & (~((b) - 1)))
 #define IsPow2(x) ((x) != 0 && ((x) & ((x) - 1)) == 0)
+
+#if defined(__clang__)
+#define TypeOf(T) __typeof__(T)
+#elif defined(__GNUC__)
+#define TypeOf(T) typeof(T)
+#else
+#error TypeOf not defined for this compiler.
+#endif
+
+// Min/Max/Clamp
+#define Min(A, B) \
+	__extension__ ({ \
+		TypeOf (A) _a = (A); \
+		TypeOf (B) _b = (B); \
+		_a < _b ? _a : _b; \
+	})
+#define Max(A, B) \
+	__extension__ ({ \
+		TypeOf (A) _a = (A); \
+		TypeOf (B) _b = (B); \
+		_a > _b ? _a : _b; \
+	})
+#define ClampTop(A, X) Min(A, X)
+#define ClampBot(X, B) Max(X, B)
 
 
 // Branch predictor hints
