@@ -194,7 +194,7 @@ bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_
     layout = VK_NULL_HANDLE;
 
     result = true;
-    Log(INFO, "Created pipeline [%s + %s]", config->vertex_shader_path, config->fragment_shader_path);
+    Log(INFO, "Created pipeline [%s + %s]", config->vertex_shader_path.c_str, config->fragment_shader_path.c_str);
 
 exit:
     if (layout != VK_NULL_HANDLE)
