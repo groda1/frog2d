@@ -4,6 +4,7 @@
 #include "memory_arena.h"
 
 #include "mesh.h"
+#include "vulkan_renderer.h"
 
 #define MESH_START_HANDLE 1000
 #define MESH_MAP_BUCKET_COUNT 64
@@ -80,20 +81,18 @@ mesh_t *MeshManager_LoadMesh(string path, mesh_handle_t *handle_out)
 
 static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size)
 {
-    // TODO create the vertex buffer on the gpu
-    (void)vertices;
-    (void)size;
+    VkBuffer buffer = VulkanRenderer_CreateStaticVertexBuffer(vertices, size);
+    AssertAlways(buffer != VK_NULL_HANDLE);
 
-    return VK_NULL_HANDLE;
+    return buffer;
 }
 
 static VkBuffer create_static_index_buffer(const u32 *indices, u32 index_count)
 {
-    // TODO create the index buffer on the gpu
-    (void)indices;
-    (void)index_count;
+    VkBuffer buffer = VulkanRenderer_CreateStaticIndexBuffer(indices, index_count);
+    AssertAlways(buffer != VK_NULL_HANDLE);
 
-    return VK_NULL_HANDLE;
+    return buffer;
 }
 
 static bool load_obj_mesh(string path, mesh_t *mesh_out)

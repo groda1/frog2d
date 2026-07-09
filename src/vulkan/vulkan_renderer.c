@@ -6,6 +6,7 @@
 #include "log.h"
 
 #include "vulkan_renderer.h"
+#include "vulkan_buffer.h"
 #include "vulkan_image.h"
 #include "vulkan_pass.h"
 
@@ -20,6 +21,10 @@
 #define MAX_PROPERTY_COUNT          MAX_LAYER_COUNT
 #define MAX_SURFACE_FORMATS         8
 #define MAX_PRESENT_MODES           8
+
+// TODO proper gpu memory allocator + buffer lifetimes; static buffers live
+// until renderer destruction for now
+#define MAX_STATIC_BUFFERS          256
 
 typedef struct _queue_families_t queue_families_t;
 struct _queue_families_t
@@ -68,11 +73,19 @@ struct _vk_renderer_t
     queue_families_t                    queue_families;
     swapchain_t                         swapchain;
     frame_sync_t                        frame_sync;
+
+    /* static buffers (vertex/index); freed at renderer destruction */
+    VkBuffer                            static_buffers[MAX_STATIC_BUFFERS];
+    VkDeviceMemory                      static_buffer_memories[MAX_STATIC_BUFFERS];
+    u32                                 static_buffer_count;
+
 };
 
 
 static vk_renderer_t *g_renderer;
 
+static VkBuffer create_static_buffer(const void *data, u64 size, VkBufferUsageFlags usage);
+static bool copy_buffer_sync(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 static bool create_swapchain(bool vsync);
 static bool create_sync_objects();
 static void destroy_sync_objects();
@@ -144,6 +157,12 @@ bool VulkanRenderer_Destroy()
 
         VulkanPass_Destroy(g_renderer->device);
 
+        for (u32 i = 0; i < g_renderer->static_buffer_count; i++)
+        {
+            vkDestroyBuffer(g_renderer->device, g_renderer->static_buffers[i], NULL);
+            vkFreeMemory(g_renderer->device, g_renderer->static_buffer_memories[i], NULL);
+        }
+
         vkDestroyCommandPool(g_renderer->device, g_renderer->command_pool, NULL);
         vkDestroyDevice(g_renderer->device, NULL);
         vkDestroySurfaceKHR(g_renderer->instance, g_renderer->surface, NULL);
@@ -157,8 +176,10 @@ bool VulkanRenderer_Destroy()
 
 void VulkanRenderer_BeginFrame()
 {
-
+    MemoryArena_Clear(g_renderer->frame_arena);
+    VulkanPass_BeginFrame();
 }
+
 
 bool VulkanRenderer_EndFrame()
 {
@@ -274,6 +295,135 @@ bool VulkanRenderer_EndFrame()
 void VulkanRenderer_WaitIdle()
 {
     vkDeviceWaitIdle(g_renderer->device);
+}
+
+VkExtent2D VulkanRenderer_GetExtent()
+{
+    return g_renderer->swapchain.extent;
+}
+
+pipeline_handle_t VulkanRenderer_AddPipeline(const pipeline_config_t *config)
+{
+    return VulkanPass_AddPipeline(g_renderer->arena, g_renderer->device,
+                                  SWAPCHAIN_PASS_HANDLE, config);
+}
+
+VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
+{
+    return create_static_buffer(vertices, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+}
+
+VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count)
+{
+    return create_static_buffer(indices, index_count * sizeof(u32),
+                                VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+}
+
+static VkBuffer create_static_buffer(const void *data, u64 size, VkBufferUsageFlags usage)
+{
+    if (g_renderer->static_buffer_count >= MAX_STATIC_BUFFERS)
+    {
+        Log(ERROR, "static buffer limit reached");
+        return VK_NULL_HANDLE;
+    }
+
+    VkBuffer static_buffer = VK_NULL_HANDLE;
+
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_memory;
+    if (!VulkanBuffer_Create(g_renderer->device, g_renderer->physical_device_memory_prop, size,
+                             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                             &staging_buffer, &staging_memory))
+        return VK_NULL_HANDLE;
+
+    void *mapped;
+    if (vkMapMemory(g_renderer->device, staging_memory, 0, size, 0, &mapped) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to map staging buffer memory");
+        goto exit;
+    }
+    MemoryCopy(mapped, data, size);
+    vkUnmapMemory(g_renderer->device, staging_memory);
+
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    if (!VulkanBuffer_Create(g_renderer->device, g_renderer->physical_device_memory_prop, size,
+                             VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
+                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &buffer, &memory))
+        goto exit;
+
+    if (!copy_buffer_sync(staging_buffer, buffer, size))
+    {
+        vkDestroyBuffer(g_renderer->device, buffer, NULL);
+        vkFreeMemory(g_renderer->device, memory, NULL);
+        goto exit;
+    }
+
+    g_renderer->static_buffers[g_renderer->static_buffer_count] = buffer;
+    g_renderer->static_buffer_memories[g_renderer->static_buffer_count] = memory;
+    g_renderer->static_buffer_count++;
+
+    static_buffer = buffer;
+
+exit:
+    vkDestroyBuffer(g_renderer->device, staging_buffer, NULL);
+    vkFreeMemory(g_renderer->device, staging_memory, NULL);
+
+    return static_buffer;
+}
+
+/* synchronous copy on the graphics queue */
+static bool copy_buffer_sync(VkBuffer src, VkBuffer dst, VkDeviceSize size)
+{
+    VkCommandBufferAllocateInfo allocate_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = g_renderer->command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    VkCommandBuffer command_buffer;
+    if (vkAllocateCommandBuffers(g_renderer->device, &allocate_info, &command_buffer) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to allocate copy command buffer");
+        return false;
+    }
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+
+    VkBufferCopy region = {
+        .size = size,
+    };
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer,
+    };
+
+    bool result = false;
+
+    if (vkBeginCommandBuffer(command_buffer, &begin_info) == VK_SUCCESS)
+    {
+        vkCmdCopyBuffer(command_buffer, src, dst, 1, &region);
+
+        result = vkEndCommandBuffer(command_buffer) == VK_SUCCESS
+            && vkQueueSubmit(g_renderer->queue_families.graphics_queue, 1, &submit_info,
+                             VK_NULL_HANDLE) == VK_SUCCESS
+            && vkQueueWaitIdle(g_renderer->queue_families.graphics_queue) == VK_SUCCESS;
+    }
+
+    if (!result)
+        Log(ERROR, "failed to record and submit buffer copy");
+
+    vkFreeCommandBuffers(g_renderer->device, g_renderer->command_pool, 1, &command_buffer);
+
+    return result;
 }
 
 static bool create_swapchain(bool vsync)
@@ -542,6 +692,7 @@ static bool create_surface(SDL_Window *window)
         Log(ERROR, "failed to get window size");
         return false;
     }
+    g_renderer->window_extent = (VkExtent2D){(u32)width, (u32)height};
 
     Log(INFO, "Created surface");
     return true;

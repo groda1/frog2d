@@ -2,7 +2,13 @@
 #define VULKAN_PASS_H
 
 #include <vulkan/vulkan_core.h>
+
+#include "vulkan_global.h"
 #include "vulkan_renderer.h"
+#include "vulkan_pipeline.h"
+
+
+
 
 
 bool VulkanPass_Init(VkInstance instance, VkPhysicalDevice physical_device);
@@ -10,6 +16,11 @@ bool VulkanPass_Destroy(VkDevice device);
 bool VulkanPass_CreateSwapchainPass(
     VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
     swapchain_t *swapchain);
+pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, renderpass_handle_t pass_handle,
+                                         const pipeline_config_t *config);
+
+void VulkanPass_BeginFrame();
+void VulkanPass_AddDrawCommand(const draw_command_t *draw_command);
 bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index);
 
 #endif

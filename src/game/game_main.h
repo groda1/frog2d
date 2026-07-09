@@ -5,6 +5,8 @@
 
 #include "core.h"
 
+bool Game_Init(void);
+
 void Game_HandleKeyDown(SDL_Keycode key);
 void Game_HandleKeyUp(SDL_Keycode key);
 void Game_Tick(f32 delta_time);

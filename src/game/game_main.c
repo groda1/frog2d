@@ -1,4 +1,77 @@
+#include "core.h"
+#include "core_math.h"
+#include "log.h"
+
 #include "game_main.h"
+#include "mesh.h"
+#include "vulkan_global.h"
+#include "vulkan_renderer.h"
+#include "vulkan_pass.h"
+
+/* port of the vulkrap hello_krap example: a wobbling triangle */
+
+#define ROT_SPEED_DEG_PER_S 25.0f
+#define WOBBLE_SPEED        5.0f
+#define TRIANGLE_SCALE      512.0f
+
+typedef struct
+{
+    mat4 transform;
+    f32 wobble;
+} push_constant_t;
+
+typedef struct
+{
+    mesh_t mesh;
+    vec3 position;
+    quat orientation;
+    push_constant_t push_constant;
+    pipeline_handle_t pipeline;
+} game_t;
+
+static game_t g_game;
+
+bool Game_Init(void)
+{
+    g_game.mesh = *MeshManager_GetMesh(PREDEFINED_MESH_COLORED_TRIANGLE);
+
+    VkExtent2D extent = VulkanRenderer_GetExtent();
+    g_game.position = V3((f32)extent.width / 2.0f, (f32)extent.height / 2.0f, 0.0f);
+    g_game.orientation = HMM_Q(0.0f, 0.0f, 0.0f, 1.0f);
+    g_game.push_constant.transform = HMM_M4D(1.0f);
+    g_game.push_constant.wobble = 0.0f;
+
+    pipeline_config_t pipeline_config = {
+        .vertex_shader_path = "shaders/hello_triangle.vert.spv",
+        .fragment_shader_path = "shaders/hello_triangle.frag.spv",
+        .push_constant_size = sizeof(push_constant_t),
+        .vertex_stride = sizeof(colored_vertex_t),
+        .vertex_attribute_count = 2,
+        .vertex_attributes = {
+            {
+                .location = 0,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = offsetof(colored_vertex_t, position),
+            },
+            {
+                .location = 1,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = offsetof(colored_vertex_t, color),
+            },
+        },
+    };
+
+    g_game.pipeline = VulkanRenderer_AddPipeline(&pipeline_config);
+    if (g_game.pipeline == PIPELINE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create hello triangle pipeline");
+        return false;
+    }
+
+    return true;
+}
 
 void Game_HandleKeyDown(SDL_Keycode key)
 {
@@ -12,5 +85,30 @@ void Game_HandleKeyUp(SDL_Keycode key)
 
 void Game_Tick(f32 delta_time)
 {
-    (void)delta_time;
+    /* update */
+    quat rotation = HMM_QFromAxisAngle_RH(V3(0.0f, 0.0f, 1.0f),
+                                          HMM_AngleDeg(-delta_time * ROT_SPEED_DEG_PER_S));
+    g_game.orientation = HMM_MulQ(g_game.orientation, rotation);
+    g_game.push_constant.wobble += delta_time * WOBBLE_SPEED;
+
+    // TODO the view/projection belongs in a uniform buffer, but descriptor
+    // sets are not ported yet, so it is baked into the push constant transform
+    VkExtent2D extent = VulkanRenderer_GetExtent();
+    mat4 projection = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width,
+                                             0.0f, (f32)extent.height, -1.0f, 1.0f);
+    mat4 model = HMM_MulM4(HMM_Translate(g_game.position),
+                           HMM_MulM4(HMM_QToM4(g_game.orientation),
+                                     HMM_Scale(V3(TRIANGLE_SCALE, TRIANGLE_SCALE, TRIANGLE_SCALE))));
+    g_game.push_constant.transform = HMM_MulM4(projection, model);
+
+    /* draw */
+    draw_command_t draw_command = {
+        .pass = SWAPCHAIN_PASS_HANDLE,
+        .pipeline = g_game.pipeline,
+        .push_constant_data = &g_game.push_constant,
+        .vertex_buffer = g_game.mesh.vertex_buffer,
+        .index_buffer = g_game.mesh.index_buffer,
+        .index_count = g_game.mesh.index_count,
+    };
+    VulkanPass_AddDrawCommand(&draw_command);
 }

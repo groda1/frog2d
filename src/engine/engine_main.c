@@ -6,6 +6,7 @@
 
 #include "engine_main.h"
 #include "game_main.h"
+#include "mesh.h"
 #include "vulkan_renderer.h"
 
 static arena_t *g_engine_arena;
@@ -15,13 +16,22 @@ bool Engine_Init(SDL_Window *window)
     g_engine_arena = MemoryArena_Create("engine-arena");
 
     if (!VulkanRenderer_Init(g_engine_arena, window))
-    {
-        MemoryArena_Destroy(g_engine_arena);
-        g_engine_arena = NULL;
-        return false;
-    }
+        goto fail;
+
+    if (!MeshManager_Init(g_engine_arena))
+        goto fail_renderer;
+
+    if (!Game_Init())
+        goto fail_renderer;
 
     return true;
+
+fail_renderer:
+    VulkanRenderer_Destroy();
+fail:
+    MemoryArena_Destroy(g_engine_arena);
+    g_engine_arena = NULL;
+    return false;
 }
 
 void Engine_Destroy(void)
