@@ -1,5 +1,4 @@
 
-- text rendering
 - image render target
 - console
 - sort draw commands by pipeline to minimize rebinds

@@ -5,6 +5,7 @@
 #include "core.h"
 #include "core_string.h"
 #include "core_math.h"
+#include "memory_arena.h"
 
 bool Text_Init(arena_t *arena, u64 initial_character_cap);
 void Text_Destroy();

@@ -42,17 +42,16 @@ typedef struct
     vec4 char_color;
     u32 char_size;
 
-
 } text_renderer_t;
 
-text_renderer_t s_text_renderer = {};
+static text_renderer_t s_text_renderer = {};
 
 bool Text_Init(arena_t *arena, u64 initial_character_cap)
 {
 
     s_text_renderer.arena = arena;
     s_text_renderer.capacity = initial_character_cap;
-    s_text_renderer.buf = arena_push_array_no_zero(arena, character_instance_t, initial_character_cap * sizeof(character_instance_t));
+    s_text_renderer.buf = arena_push_array_no_zero(arena, character_instance_t, initial_character_cap);
 
     s_text_renderer.sbo = Renderer_CreateStorageBuffer(initial_character_cap * sizeof(character_instance_t));
     if (s_text_renderer.sbo == BUFFER_OBJECT_HANDLE_INVALID)
@@ -119,20 +118,6 @@ bool Text_Init(arena_t *arena, u64 initial_character_cap)
         return false;
     }
 
-    // const char text[] = "foobar FOOBAR <> #!";
-    // text_instance_t instances[ArrayCount(text) - 1];
-    // for (u32 i = 0; i < ArrayCount(instances); i++)
-    // {
-    //     instances[i] = (text_instance_t){
-    //         .position = V2(1200.0f + (f32)i * 16.0f, 900.0f),
-    //         .character = text[i],
-    //         .size = 16.0f,
-    //         .color = V4(1.0f, 1.0f, 1.0f, 1.0f),
-    //     };
-    // }
-    // Renderer_SetBufferObject(g_game.text_instances, instances, sizeof(instances));
-    // g_game.text_instance_count = ArrayCount(instances);
-
     window_extent_t extent = Renderer_GetWindowExtent();
     Text_HandleResize(extent.width, extent.height);
 
@@ -171,14 +156,14 @@ bool Text_Draw(u32 x, u32 y, string text)
 {
     if ((text.len + s_text_renderer.buf_len) > s_text_renderer.capacity)
     {
-        // TODO grow  SBO
+        // TODO grow SBO
         Log(WARNING, "text renderer capacity exceeded");
         return false;
     }
     for (u32 i = 0; i < text.len; i++)
     {
         character_instance_t character = {
-            .position = V2((f32)x, (f32)y),
+            .position = V2((f32)x + (f32)(i * s_text_renderer.char_size) + (f32)s_text_renderer.char_size / 2, (f32)y + (f32)s_text_renderer.char_size),
             .character = text.str[i],
             .size = (f32)s_text_renderer.char_size,
             .color = s_text_renderer.char_color,
@@ -187,9 +172,6 @@ bool Text_Draw(u32 x, u32 y, string text)
         s_text_renderer.buf[s_text_renderer.buf_len++] = character;
     }
 
-    Log(DEBUG, "kek %ju, %ju", s_text_renderer.buf_len, s_text_renderer.buf_len * sizeof(character_instance_t));
-    Renderer_SetBufferObject(s_text_renderer.sbo, s_text_renderer.buf,
-                             s_text_renderer.buf_len * sizeof(character_instance_t));
     return true;
 }
 
@@ -200,6 +182,12 @@ void Text_BeginFrame()
 
 void Text_EndFrame()
 {
+    if (s_text_renderer.buf_len == 0)
+        return;
+
+    Renderer_SetBufferObject(s_text_renderer.sbo, s_text_renderer.buf,
+                             s_text_renderer.buf_len * sizeof(character_instance_t));
+
     text_push_constant_t text_push_constant = {
         .texture = s_text_renderer.font_texture
     };
