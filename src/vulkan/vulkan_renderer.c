@@ -4,9 +4,10 @@
 
 #include "core.h"
 #include "log.h"
-#include "vulkan_image.h"
 
 #include "vulkan_renderer.h"
+#include "vulkan_image.h"
+#include "vulkan_pass.h"
 
 #define APPLICATION_NAME    "todo"
 #define APPLICATION_VERSION VK_MAKE_VERSION(0, 0, 1)
@@ -84,21 +85,26 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     log_instance_layer_properties();
 
     if (!create_instance())
-        goto _fail;
+        goto fail;
     if (!create_surface(window))
-        goto _fail;
+        goto fail;
     if (!setup_physical_device())
-        goto _fail;
+        goto fail;
     if (!create_logical_device())
-        goto _fail;
+        goto fail;
     if (!create_swapchain(false))
-        goto _fail;
+        goto fail;
+
+    if (!VulkanPass_Init(g_renderer->instance, g_renderer->physical_device))
+        goto fail;
+    if (!VulkanPass_CreateSwapchainPass(g_renderer->device, g_renderer->physical_device_memory_prop, &g_renderer->swapchain))
+        goto fail;
 
 
     Log(INFO, "Vulkan renderer initialized");
     return true;
 
-_fail:
+fail:
     MemoryArena_PopTo(arena, pos);
     g_renderer = NULL;
     return false;
@@ -108,6 +114,8 @@ bool VulkanRenderer_Destroy()
 {
     if (g_renderer)
     {
+        VulkanPass_Destroy(g_renderer->device);
+
         vkDestroySwapchainKHR(g_renderer->device, g_renderer->swapchain.handle, NULL);
         vkDestroyCommandPool(g_renderer->device, g_renderer->command_pool, NULL);
         vkDestroyDevice(g_renderer->device, NULL);

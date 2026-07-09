@@ -1,12 +1,17 @@
+#include <vulkan/vulkan_core.h>
+
 #include "vulkan_image.h"
 
-#include <vulkan/vulkan_core.h>
 
 static bool create_image(VkDevice device, VkExtent2D extent, u32 mip_levels,
                          VkSampleCountFlags num_samples, VkFormat format, VkImageTiling tiling,
                          VkImageUsageFlags usage, VkMemoryPropertyFlags required_memory_properties,
                          VkPhysicalDeviceMemoryProperties device_memory_properties,
                          VkImage *image_out, VkDeviceMemory *image_memory_out);
+static bool find_supported_format(VkInstance instance, VkPhysicalDevice physical_device,
+                                  const VkFormat *candidate_formats, u32 candidate_format_count,
+                                  VkImageTiling tiling, VkFormatFeatureFlags features,
+                                  VkFormat *format_out);
 
 bool VulkanImage_CreateView(VkDevice device, VkImage image, VkFormat format,
                                    VkImageAspectFlags aspect_flags, u32 mip_levels,
@@ -50,12 +55,66 @@ bool VulkanImage_CreateDepthResources(VkDevice device, VkExtent2D image_extent,
                       device_memory_out))
         return false;
 
-    if (VulkanImage_CreateView(device, *image_out, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1,
-                               image_view_out) != VK_SUCCESS)
+    if (!VulkanImage_CreateView(device, *image_out, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1,
+                               image_view_out))
         return false;
 
     return true;
 }
+
+
+bool VulkanImage_FindDepthFormat(VkInstance instance, VkPhysicalDevice physical_device,
+                                 VkFormat *depth_format_out)
+{
+    static const VkFormat candidates[] = {
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT,
+    };
+
+    return find_supported_format(instance, physical_device, candidates, ArrayCount(candidates),
+                                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                                 depth_format_out);
+}
+
+bool VulkanImage_CreateFramebuffer(VkDevice device, VkImageView image_view,
+                                   VkImageView depth_image_view, VkExtent2D extent,
+                                   VkRenderPass render_pass, VkFramebuffer *framebuffer_out)
+{
+    VkImageView attachments[] = {image_view, depth_image_view};
+
+    VkFramebufferCreateInfo framebuffer_create_info = {
+        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass = render_pass,
+        .attachmentCount = ArrayCount(attachments),
+        .pAttachments = attachments,
+        .width = extent.width,
+        .height = extent.height,
+        .layers = 1,
+    };
+
+    if (vkCreateFramebuffer(device, &framebuffer_create_info, NULL, framebuffer_out) != VK_SUCCESS)
+        return false;
+
+    return true;
+}
+
+bool VulkanImage_CreateFramebuffers(VkDevice device, const VkImageView *color_image_views,
+                                    u32 color_image_view_count, VkImageView depth_image_view,
+                                    VkExtent2D extent, VkRenderPass render_pass,
+                                    VkFramebuffer *framebuffers_out)
+{
+    for (u32 i = 0; i < color_image_view_count; i++)
+    {
+        if (!VulkanImage_CreateFramebuffer(device, color_image_views[i], depth_image_view, extent,
+                                          render_pass, &framebuffers_out[i]))
+            return false;
+    }
+
+    return true;
+}
+
+
 
 static bool create_image(VkDevice device, VkExtent2D extent, u32 mip_levels,
                          VkSampleCountFlags num_samples, VkFormat format, VkImageTiling tiling,
@@ -107,10 +166,35 @@ static bool create_image(VkDevice device, VkExtent2D extent, u32 mip_levels,
         .memoryTypeIndex = memory_type_index,
     };
 
-    if (vkAllocateMemory(device, &memory_allocate_info, NULL, image_memory_out) != VK_SUCCESS)
+    if (vkAllocateMemory(device, &memory_allocate_info, NULL /* TODO: Allocator */, image_memory_out) != VK_SUCCESS)
         return false;
     if (vkBindImageMemory(device, *image_out, *image_memory_out, 0) != VK_SUCCESS)
         return false;
 
     return true;
+}
+
+static bool find_supported_format(VkInstance instance, VkPhysicalDevice physical_device,
+                                  const VkFormat *candidate_formats, u32 candidate_format_count,
+                                  VkImageTiling tiling, VkFormatFeatureFlags features,
+                                  VkFormat *format_out)
+{
+    (void)instance;
+
+    for (u32 i = 0; i < candidate_format_count; i++)
+    {
+        VkFormatProperties format_properties;
+        vkGetPhysicalDeviceFormatProperties(physical_device, candidate_formats[i], &format_properties);
+
+        if ((tiling == VK_IMAGE_TILING_LINEAR &&
+                (format_properties.linearTilingFeatures & features) == features) ||
+            (tiling == VK_IMAGE_TILING_OPTIMAL &&
+                (format_properties.optimalTilingFeatures & features) == features))
+        {
+            *format_out = candidate_formats[i];
+            return true;
+        }
+    }
+
+    return false;
 }

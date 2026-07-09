@@ -1,14 +1,8 @@
 #include <SDL3/SDL_video.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_error.h>
 
-#include "core.h"
-#include "core_string.h"
 #include "memory_arena.h"
 
 #include "log.h"
@@ -31,7 +25,7 @@ int main(int argc, char **argv)
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         Log(ERROR, "Failed to init SDL: %s\n", SDL_GetError());
-        return EXIT_FAILURE;
+        return -1;
     }
 
     SDL_Window *window = SDL_CreateWindow(
@@ -42,12 +36,12 @@ int main(int argc, char **argv)
         Log(ERROR, "Failed to create window: %s\n", SDL_GetError());
 
         SDL_Quit();
-        return EXIT_FAILURE;
+        return -1;
     }
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
     if (!VulkanRenderer_Init(main_arena, window))
-        goto _exit;
+        goto exit;
 
     SDL_ShowWindow(window);
 
@@ -72,12 +66,13 @@ int main(int argc, char **argv)
     }
 
     VulkanRenderer_Destroy();
-_exit:
+
+exit:
     SDL_DestroyWindow(window);
     SDL_Quit();
 
     MemoryArena_Print(main_arena);
     MemoryArena_Destroy(main_arena);
 
-    return EXIT_SUCCESS;
+    return 0;
 }

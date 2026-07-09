@@ -16,4 +16,17 @@ bool VulkanImage_CreateDepthResources(VkDevice device, VkExtent2D image_extent,
                                       VkImageView *image_view_out,
                                       VkDeviceMemory *device_memory_out);
 
+bool VulkanImage_FindDepthFormat(VkInstance instance, VkPhysicalDevice physical_device,
+                                 VkFormat *depth_format_out);
+
+// TODO: attachments should be optional
+bool VulkanImage_CreateFramebuffer(VkDevice device, VkImageView image_view,
+                                   VkImageView depth_image_view, VkExtent2D extent,
+                                   VkRenderPass render_pass, VkFramebuffer *framebuffer_out);
+
+bool VulkanImage_CreateFramebuffers(VkDevice device, const VkImageView *color_image_views,
+                                    u32 color_image_view_count, VkImageView depth_image_view,
+                                    VkExtent2D extent, VkRenderPass render_pass,
+                                    VkFramebuffer *framebuffers_out);
+
 #endif
