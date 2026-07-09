@@ -85,6 +85,7 @@ static vk_renderer_t *s_renderer;
 static bool create_swapchain(bool vsync);
 static void destroy_swapchain();
 static bool recreate_swapchain();
+static void recover_failed_frame();
 static bool create_sync_objects();
 static void destroy_sync_objects();
 static bool query_instance_layer_support(string layer_name);
@@ -230,9 +231,17 @@ bool VulkanRenderer_EndFrame()
 
     VkCommandBuffer transfer_command_buffer =
         s_renderer->transfer_command_buffers[s_renderer->frame_sync.inflight_counter];
-
+    VkCommandBuffer draw_command_buffer =
+        s_renderer->draw_command_buffers[s_renderer->frame_sync.inflight_counter];
 
     bool transfer_required = VulkanBuffer_BakeCommandBuffer(transfer_command_buffer, image_index);
+
+    if (!VulkanPass_BakeCommandBuffer(draw_command_buffer, image_index))
+    {
+        Log(ERROR, "failed to bake draw command buffer");
+        goto error;
+    }
+
     if (transfer_required)
     {
         signal_semaphore = sync_transfer_finished_semaphore(image_index);
@@ -249,17 +258,8 @@ bool VulkanRenderer_EndFrame()
             VK_SUCCESS)
         {
             Log(ERROR, "failed to submit transfer command buffer");
-            return false;
+            goto error;
         }
-    }
-
-    VkCommandBuffer draw_command_buffer =
-        s_renderer->draw_command_buffers[s_renderer->frame_sync.inflight_counter];
-
-    if (!VulkanPass_BakeCommandBuffer(draw_command_buffer, image_index))
-    {
-        Log(ERROR, "failed to bake draw command buffer");
-        return false;
     }
 
     vkResetFences(g_device, 1, &inflight_fence);
@@ -295,7 +295,7 @@ bool VulkanRenderer_EndFrame()
                       inflight_fence) != VK_SUCCESS)
     {
         Log(ERROR, "failed to submit draw command buffer");
-        return false;
+        goto error;
     }
 
     VkPresentInfoKHR present_info = {
@@ -315,12 +315,15 @@ bool VulkanRenderer_EndFrame()
     else if (result != VK_SUCCESS)
     {
         Log(ERROR, "failed to present swapchain image");
-        return false;
+        goto error;
     }
 
     sync_step();
 
     return true;
+error:
+    recover_failed_frame();
+    return false;
 }
 
 void VulkanRenderer_WaitIdle()
@@ -518,6 +521,20 @@ static bool recreate_swapchain()
         return false;
 
     return true;
+}
+
+static void recover_failed_frame()
+{
+    Log(WARNING, "recovering from failed frame");
+
+    VulkanRenderer_WaitIdle();
+
+    destroy_sync_objects();
+    if (!create_sync_objects())
+        Log(ERROR, "failed to recreate sync objects during frame recovery");
+
+    if (!recreate_swapchain())
+        Log(ERROR, "failed to recreate swapchain during frame recovery");
 }
 
 static bool create_sync_objects()
