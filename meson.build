@@ -17,7 +17,6 @@ sources = []
 
 subdir('src')
 
-
 glsllang = find_program('glslangValidator')
 shaders = [
     '2d_text_ssbo.frag',

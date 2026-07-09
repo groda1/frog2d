@@ -11,11 +11,20 @@ string string_new(arena_t *arena, u64 capacity)
     };
 }
 
-string string_from(const char *str, u64 len)
+string string_from_l(const char *str, u64 len)
 {
     return (string){
         .str = (u8 *)str,
         .len = len,
+        .cap = 0,
+    };
+}
+
+string string_from(const char *str)
+{
+    return (string){
+        .str = (u8 *)str,
+        .len = strlen(str),
         .cap = 0,
     };
 }
@@ -45,18 +54,21 @@ string string_fmtv(arena_t *arena, const char *fmt, va_list args)
     return s;
 }
 
-
-
 string string_fmt_a(arena_t arena, string *s, ...);
+string string_clone(arena_t *arena, string src);
 
-
-string string_clone(arena_t *arena, const string *src);
-
-void string_copy(const string *src, string *dst)
+bool string_match(string s1, string s2)
 {
-    u64 len = Min(strlen((char *)src->str), dst->cap - 1);
+    if (s1.len != s2.len)
+        return false;
+    return MemoryMatch(s1.str, s2.str, s1.len);
+}
 
-    MemoryCopy(dst->str, src->str, len);
+void string_copy(string src, string *dst)
+{
+    u64 len = Min(strlen((char *)src.str), dst->cap - 1);
+
+    MemoryCopy(dst->str, src.str, len);
     dst->str[len] = 0;
     dst->len = len;
 }
