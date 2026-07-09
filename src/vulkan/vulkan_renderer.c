@@ -62,6 +62,8 @@ struct _vk_renderer_t
     VkPhysicalDeviceMemoryProperties    physical_device_memory_prop;
     VkDevice                            device;
     VkCommandPool                       command_pool;
+    // TODO transfer command buffers
+    VkCommandBuffer                     draw_command_buffers[MAX_FRAMES_IN_FLIGHT];
 
     queue_families_t                    queue_families;
     swapchain_t                         swapchain;
@@ -80,6 +82,12 @@ static bool create_instance();
 static bool create_surface(SDL_Window *window);
 static bool setup_physical_device();
 static bool create_logical_device();
+
+// Sync
+static VkSemaphore  sync_image_available_semaphore();
+static VkSemaphore  sync_render_finished_semaphore(u32 image_index);
+static VkFence      sync_inflight_fence();
+static void         sync_step();
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -142,6 +150,122 @@ bool VulkanRenderer_Destroy()
     }
 
     MemoryArena_Destroy(g_renderer->frame_arena);
+
+    return true;
+}
+
+void VulkanRenderer_BeginFrame()
+{
+
+}
+
+bool VulkanRenderer_EndFrame()
+{
+    VkFence inflight_fence = sync_inflight_fence();
+
+    if (vkWaitForFences(g_renderer->device, 1, &inflight_fence, VK_TRUE, U64_MAX) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to wait for inflight fence");
+        return false;
+    }
+
+    u32 image_index;
+    VkResult result = vkAcquireNextImageKHR(g_renderer->device, g_renderer->swapchain.handle,
+                                            U64_MAX, sync_image_available_semaphore(),
+                                            VK_NULL_HANDLE, &image_index);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        // TODO recreate swapchain
+        Log(WARNING, "swapchain out of date; recreation not implemented");
+        return false;
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        Log(ERROR, "failed to acquire swapchain image");
+        return false;
+    }
+
+    // TODO bake and submit transfer commands here, signaling the
+    // transfer-finished semaphore, and make the draw submit below also wait on
+    // it at VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
+
+    /* bake draw command buffer; indexed by frame in flight, since that is what
+       the fence wait above proves is no longer executing */
+    VkCommandBuffer command_buffer =
+        g_renderer->draw_command_buffers[g_renderer->frame_sync.inflight_counter];
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+
+    if (vkResetCommandBuffer(command_buffer, 0) != VK_SUCCESS ||
+        vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to begin draw command buffer");
+        return false;
+    }
+
+    if (!VulkanPass_BakeCommandBuffer(command_buffer, image_index))
+    {
+        Log(ERROR, "failed to bake draw command buffer");
+        return false;
+    }
+
+    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to end draw command buffer");
+        return false;
+    }
+
+    vkResetFences(g_renderer->device, 1, &inflight_fence);
+
+    VkSemaphore wait_semaphores[] = { sync_image_available_semaphore() };
+    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    VkSemaphore signal_semaphores[] = { sync_render_finished_semaphore(image_index) };
+
+    StaticAssert(ArrayCount(wait_semaphores) == ArrayCount(wait_stages), "one wait stage per wait semaphore");
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = ArrayCount(wait_semaphores),
+        .pWaitSemaphores = wait_semaphores,
+        .pWaitDstStageMask = wait_stages,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer,
+        .signalSemaphoreCount = ArrayCount(signal_semaphores),
+        .pSignalSemaphores = signal_semaphores,
+    };
+
+    if (vkQueueSubmit(g_renderer->queue_families.graphics_queue, 1, &submit_info,
+                      inflight_fence) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to submit draw command buffer");
+        return false;
+    }
+
+    VkPresentInfoKHR present_info = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = ArrayCount(signal_semaphores),
+        .pWaitSemaphores = signal_semaphores,
+        .swapchainCount = 1,
+        .pSwapchains = &g_renderer->swapchain.handle,
+        .pImageIndices = &image_index,
+    };
+
+    result = vkQueuePresentKHR(g_renderer->queue_families.present_queue, &present_info);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        // TODO recreate swapchain
+        Log(WARNING, "swapchain out of date or suboptimal; recreation not implemented");
+    }
+    else if (result != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to present swapchain image");
+        return false;
+    }
+
+    sync_step();
 
     return true;
 }
@@ -307,7 +431,6 @@ static void destroy_sync_objects()
     }
 }
 
-AttributeMaybeUnused
 static inline VkSemaphore sync_image_available_semaphore()
 {
     return g_renderer->frame_sync.image_available_semaphores[g_renderer->frame_sync.inflight_counter];
@@ -319,19 +442,16 @@ static inline VkSemaphore sync_transfer_finished_semaphore()
     return g_renderer->frame_sync.transfer_finished_semaphores[g_renderer->frame_sync.inflight_counter];
 }
 
-AttributeMaybeUnused
-static inline VkSemaphore sync_render_finished_semaphore()
+static inline VkSemaphore sync_render_finished_semaphore(u32 image_index)
 {
-    return g_renderer->frame_sync.render_finished_semaphores[g_renderer->frame_sync.inflight_counter];
+    return g_renderer->frame_sync.render_finished_semaphores[image_index];
 }
 
-AttributeMaybeUnused
 static inline VkFence sync_inflight_fence()
 {
     return g_renderer->frame_sync.inflight_fences[g_renderer->frame_sync.inflight_counter];
 }
 
-AttributeMaybeUnused
 static void sync_step()
 {
     g_renderer->frame_sync.inflight_counter =
@@ -620,6 +740,20 @@ static bool create_logical_device()
     if (vkCreateCommandPool(g_renderer->device, &create_command_pool, NULL, &g_renderer->command_pool) != VK_SUCCESS)
     {
         Log(ERROR, "failed to create graphics command pool");
+        return false;
+    }
+
+    VkCommandBufferAllocateInfo allocate_command_buffers = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = g_renderer->command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = MAX_FRAMES_IN_FLIGHT,
+    };
+
+    if (vkAllocateCommandBuffers(g_renderer->device, &allocate_command_buffers,
+                                 g_renderer->draw_command_buffers) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to allocate draw command buffers");
         return false;
     }
 

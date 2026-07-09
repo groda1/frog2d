@@ -28,7 +28,7 @@ bool VulkanRenderer_Destroy();
 
 void VulkanRenderer_BeginFrame();
 void VulkanRenderer_AddDrawCommand();
-void VulkanRenderer_EndFrame();
+bool VulkanRenderer_EndFrame();
 
 
 #endif

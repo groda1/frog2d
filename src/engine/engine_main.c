@@ -5,6 +5,7 @@
 
 #include "engine_main.h"
 #include "game_main.h"
+#include "vulkan_renderer.h"
 
 void Engine_HandleKeyDown(SDL_Keycode key)
 {
@@ -29,5 +30,9 @@ void Engine_Tick(void)
     f32 delta_time = (f32)(now_ns - last_time_ns) / (f32)SDL_NS_PER_SECOND;
     last_time_ns = now_ns;
 
+    VulkanRenderer_BeginFrame();
+
     Game_Tick(delta_time);
+
+    VulkanRenderer_EndFrame();
 }
