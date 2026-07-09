@@ -11,6 +11,7 @@
 #include "memory_arena.h"
 
 #include "log.h"
+#include "vulkan_renderer.h"
 
 
 static bool frog2d_sdl_init()
@@ -57,6 +58,9 @@ int main(int argc, char **argv)
     }
 
     //SDL_Vulkan_CreateSurface()
+
+    VulkanRenderer_Init(main_arena);
+
 
     SDL_Event event;
     bool m_running = true;
