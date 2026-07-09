@@ -11,7 +11,10 @@ bool VulkanPass_Destroy(VkDevice device);
 bool VulkanPass_CreateSwapchainPass(
     arena_t *arena, VkDevice device,
     VkPhysicalDeviceMemoryProperties physical_device_memory_properties, swapchain_t *swapchain);
-pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, renderpass_handle_t pass_handle,
+bool VulkanPass_RecreateSwapchainPass(
+    VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
+    swapchain_t *swapchain);
+pipeline_handle_t VulkanPass_AddPipeline(VkDevice device, renderpass_handle_t pass_handle,
                                          const pipeline_config_t *config);
 
 void VulkanPass_BeginFrame();

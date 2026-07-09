@@ -91,6 +91,7 @@ static VkBuffer create_static_buffer(const void *data, u64 size, VkBufferUsageFl
 static bool copy_buffer_sync(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 static bool create_swapchain(bool vsync);
 static void destroy_swapchain();
+static bool recreate_swapchain();
 static bool create_sync_objects();
 static void destroy_sync_objects();
 static bool query_instance_layer_support(string layer_name);
@@ -149,6 +150,11 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 
 fail:
     MemoryArena_PopTo(arena, pos);
+
+    if (g_renderer->frame_arena)
+        MemoryArena_Destroy(g_renderer->frame_arena);
+    if (g_renderer->swapchain_arena)
+        MemoryArena_Destroy(g_renderer->swapchain_arena);
     g_renderer = NULL;
     return false;
 }
@@ -175,14 +181,24 @@ bool VulkanRenderer_Destroy()
         vkDestroyDevice(g_renderer->device, NULL);
         vkDestroySurfaceKHR(g_renderer->instance, g_renderer->surface, NULL);
         vkDestroyInstance(g_renderer->instance, NULL);
+
+        MemoryArena_Print(g_renderer->swapchain_arena);
+        MemoryArena_Destroy(g_renderer->swapchain_arena);
+        MemoryArena_Print(g_renderer->frame_arena);
+        MemoryArena_Destroy(g_renderer->frame_arena);
     }
 
-    MemoryArena_Print(g_renderer->swapchain_arena);
-    MemoryArena_Destroy(g_renderer->swapchain_arena);
-    MemoryArena_Print(g_renderer->frame_arena);
-    MemoryArena_Destroy(g_renderer->frame_arena);
-
     return true;
+}
+
+bool VulkanRenderer_HandleResize(u32 width, u32 height)
+{
+    if (width == 0 || height == 0)
+        return true; /* minimized; keep the old swapchain */
+
+    g_renderer->window_extent = (VkExtent2D){width, height};
+
+    return recreate_swapchain();
 }
 
 void VulkanRenderer_BeginFrame()
@@ -209,8 +225,9 @@ bool VulkanRenderer_EndFrame()
                                             VK_NULL_HANDLE, &image_index);
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        // TODO recreate swapchain
-        Log(WARNING, "swapchain out of date; recreation not implemented");
+        /* skip this frame; the inflight fence was not reset so the next
+           frame's wait passes right through */
+        recreate_swapchain();
         return false;
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
@@ -290,8 +307,7 @@ bool VulkanRenderer_EndFrame()
     result = vkQueuePresentKHR(g_renderer->queue_families.present_queue, &present_info);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
-        // TODO recreate swapchain
-        Log(WARNING, "swapchain out of date or suboptimal; recreation not implemented");
+        recreate_swapchain();
     }
     else if (result != VK_SUCCESS)
     {
@@ -317,7 +333,7 @@ VkExtent2D VulkanRenderer_GetExtent()
 pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
                                              const pipeline_config_t *config)
 {
-    return VulkanPass_AddPipeline(g_renderer->global_arena, g_renderer->device, pass_handle, config);
+    return VulkanPass_AddPipeline(g_renderer->device, pass_handle, config);
 }
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
@@ -565,6 +581,26 @@ static void destroy_swapchain()
     vkDestroySwapchainKHR(g_renderer->device, swapchain->handle, NULL);
 
     MemoryZeroItem(swapchain);
+}
+
+static bool recreate_swapchain()
+{
+    VulkanRenderer_WaitIdle();
+
+    destroy_swapchain();
+
+    if (!create_swapchain(false))
+    {
+        Log(ERROR, "failed to recreate swapchain");
+        return false;
+    }
+
+    if (!VulkanPass_RecreateSwapchainPass(g_renderer->device,
+                                          g_renderer->physical_device_memory_prop,
+                                          &g_renderer->swapchain))
+        return false;
+
+    return true;
 }
 
 static bool create_sync_objects()

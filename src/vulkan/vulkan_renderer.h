@@ -42,6 +42,8 @@ struct _draw_command_t
 bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window);
 bool VulkanRenderer_Destroy();
 
+bool VulkanRenderer_HandleResize(u32 width, u32 height);
+
 void VulkanRenderer_BeginFrame();
 bool VulkanRenderer_EndFrame();
 void VulkanRenderer_WaitIdle();

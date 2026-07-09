@@ -2,7 +2,6 @@
 #define RENDER_TYPES_H
 
 #include "core.h"
-#include "core_string.h"
 
 /* engine-side rendering types; implemented by the vulkan renderer */
 
@@ -35,11 +34,18 @@ typedef struct
     u32             offset;
 } vertex_attribute_t;
 
+typedef struct
+{
+    u8  *code;
+    u64 size;
+} shader_code_t;
+
 typedef struct _pipeline_config_t pipeline_config_t;
 struct _pipeline_config_t
 {
-    string vertex_shader_path;
-    string fragment_shader_path;
+    /* spir-v; must stay alive for the pipeline's lifetime (rebuilds) */
+    shader_code_t vertex_shader;
+    shader_code_t fragment_shader;
 
     u32 push_constant_size; // 0 = no push constants; vertex stage only for now
 

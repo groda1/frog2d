@@ -1,39 +1,25 @@
-#include <stdio.h>
-
 #include "core.h"
-#include "core_string.h"
 #include "log.h"
 
 #include "vulkan_pipeline.h"
 
-#define MAX_SHADER_PATH 512
-
 static VkFormat vertex_format_to_vk(vertex_format_t format);
-static u8 *read_shader_file(arena_t *arena, string path, u64 *size_out);
-static bool create_shader_module(VkDevice device, arena_t *scratch, string path,
+static bool create_shader_module(VkDevice device, shader_code_t shader,
                                  VkShaderModule *module_out);
 
-bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_pass,
-                           VkExtent2D extent, const pipeline_config_t *config,
-                           pipeline_t *pipeline_out)
+bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
+                           const pipeline_config_t *config, pipeline_t *pipeline_out)
 {
-
     Assert(config->vertex_attribute_count <= MAX_VERTEX_ATTRIBUTES);
 
     bool result = false;
-
-    MemoryCopyStruct(&pipeline_out->config, config);
-    pipeline_out->config.vertex_shader_path = string_clone(arena, config->vertex_shader_path);
-    pipeline_out->config.fragment_shader_path = string_clone(arena, config->fragment_shader_path);
-
-    u64 scratch_pos = MemoryArena_Pos(arena);
 
     VkShaderModule vertex_shader = VK_NULL_HANDLE;
     VkShaderModule fragment_shader = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
 
-    if (!create_shader_module(device, arena, config->vertex_shader_path, &vertex_shader) ||
-        !create_shader_module(device, arena, config->fragment_shader_path, &fragment_shader))
+    if (!create_shader_module(device, config->vertex_shader, &vertex_shader) ||
+        !create_shader_module(device, config->fragment_shader, &fragment_shader))
         goto exit;
 
     VkPipelineShaderStageCreateInfo shader_stages[] = {
@@ -82,26 +68,23 @@ bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_
         .primitiveRestartEnable = false,
     };
 
-    VkViewport viewport = {
-        .x = 0.0f,
-        .y = (f32)extent.height,
-        .width = (f32)extent.width,
-        .height = -(f32)extent.height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
-    };
-
-    VkRect2D scissor = {
-        .offset = {0, 0},
-        .extent = extent,
-    };
-
+    /* viewport and scissor are dynamic (set at bake time) so pipelines are
+       independent of the swapchain extent and survive recreation */
     VkPipelineViewportStateCreateInfo viewport_state = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         .viewportCount = 1,
-        .pViewports = &viewport,
         .scissorCount = 1,
-        .pScissors = &scissor,
+    };
+
+    VkDynamicState dynamic_states[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamic_state = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = ArrayCount(dynamic_states),
+        .pDynamicStates = dynamic_states,
     };
 
     VkPipelineRasterizationStateCreateInfo rasterization_state = {
@@ -171,6 +154,7 @@ bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_
         .pVertexInputState = &vertex_input_state,
         .pInputAssemblyState = &input_assembly_state,
         .pViewportState = &viewport_state,
+        .pDynamicState = &dynamic_state,
         .pRasterizationState = &rasterization_state,
         .pMultisampleState = &multisample_state,
         .pDepthStencilState = &depth_stencil_state,
@@ -191,10 +175,11 @@ bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_
     pipeline_out->vk_pipeline = vk_pipeline;
     pipeline_out->layout = layout;
     pipeline_out->push_constant_size = config->push_constant_size;
+    MemoryCopyStruct(&pipeline_out->config, config);
     layout = VK_NULL_HANDLE;
 
     result = true;
-    Log(INFO, "Created pipeline [%s + %s]", config->vertex_shader_path.c_str, config->fragment_shader_path.c_str);
+    Log(INFO, "Created pipeline");
 
 exit:
     if (layout != VK_NULL_HANDLE)
@@ -203,8 +188,6 @@ exit:
         vkDestroyShaderModule(device, vertex_shader, NULL);
     if (fragment_shader != VK_NULL_HANDLE)
         vkDestroyShaderModule(device, fragment_shader, NULL);
-
-    MemoryArena_PopTo(arena, scratch_pos);
 
     return result;
 }
@@ -234,59 +217,24 @@ static VkFormat vertex_format_to_vk(vertex_format_t format)
     return VK_FORMAT_UNDEFINED;
 }
 
-static u8 *read_shader_file(arena_t *arena, string path, u64 *size_out)
-{
-    FILE *file = fopen(path.c_str, "rb");
-    if (!file)
-    {
-        Log(ERROR, "failed to open shader file: %s", path);
-        goto error;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    if (size <= 0)
-    {
-        Log(ERROR, "failed to read shader file: %s", path);
-        goto error;
-    }
-
-    u8 *data = arena_push_array_no_zero(arena, u8, (u64)size);
-    if (fread(data, 1, (u64)size, file) != (u64)size)
-    {
-        Log(ERROR, "failed to read shader file: %s", path);
-        goto error;
-    }
-
-    fclose(file);
-    *size_out = (u64)size;
-    return data;
-
-error:
-    if (file)
-        fclose(file);
-    return NULL;
-}
-
-static bool create_shader_module(VkDevice device, arena_t *scratch, string path,
+static bool create_shader_module(VkDevice device, shader_code_t shader,
                                  VkShaderModule *module_out)
 {
-    u64 size;
-    u8 *code = read_shader_file(scratch, path, &size);
-    if (!code)
+    if (shader.code == NULL || shader.size == 0)
+    {
+        Log(ERROR, "invalid shader code");
         return false;
+    }
 
     VkShaderModuleCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = size,
-        .pCode = (const u32 *)code,
+        .codeSize = shader.size,
+        .pCode = (const u32 *)shader.code,
     };
 
     if (vkCreateShaderModule(device, &create_info, NULL, module_out) != VK_SUCCESS)
     {
-        Log(ERROR, "failed to create shader module: %s", path);
+        Log(ERROR, "failed to create shader module");
         return false;
     }
 

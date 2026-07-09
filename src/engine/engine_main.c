@@ -6,6 +6,7 @@
 
 #include "engine_main.h"
 #include "mesh.h"
+#include "renderer.h"
 #include "vulkan_renderer.h"
 
 static arena_t *g_engine_arena;
@@ -16,6 +17,9 @@ bool Engine_Init(SDL_Window *window)
 
     if (!VulkanRenderer_Init(g_engine_arena, window))
         goto fail;
+
+    if (!Renderer_Init(g_engine_arena))
+        goto fail_renderer;
 
     if (!MeshManager_Init(g_engine_arena))
         goto fail_renderer;
@@ -43,7 +47,7 @@ void Engine_HandleResize(u32 width, u32 height)
 {
     Log(DEBUG, "window resized to %ux%u", width, height);
 
-    // TODO recreate the swapchain
+    VulkanRenderer_HandleResize(width, height);
 }
 
 f32 Engine_BeginFrame(void)

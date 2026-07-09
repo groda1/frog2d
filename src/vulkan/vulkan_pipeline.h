@@ -16,14 +16,15 @@ struct _pipeline_t
     VkPipelineLayout    layout;
     u32                 push_constant_size;
 
+    /* kept for future rebuilds; the shader code is owned by the caller and
+       must outlive the pipeline */
     pipeline_config_t   config;
 
     // TODO descriptor sets
 };
 
-bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_pass,
-                           VkExtent2D extent, const pipeline_config_t *config,
-                           pipeline_t *pipeline_out);
+bool VulkanPipeline_Create(VkDevice device, VkRenderPass render_pass,
+                           const pipeline_config_t *config, pipeline_t *pipeline_out);
 void VulkanPipeline_Destroy(VkDevice device, pipeline_t *pipeline);
 
 #endif

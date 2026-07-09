@@ -81,6 +81,10 @@ static vk_passes_t g_passes = {};
 static render_pass_t *get_render_pass(renderpass_handle_t pass_handle);
 static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
                                          VkFormat depth_format, VkRenderPass *render_pass_out);
+static bool create_swapchain_target(VkDevice device,
+                                    VkPhysicalDeviceMemoryProperties memory_properties,
+                                    swapchain_t *swapchain, VkRenderPass render_pass,
+                                    swapchain_target_t *target);
 static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index);
 static void destroy_render_pass(VkDevice device, render_pass_t *pass);
 static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target);
@@ -118,20 +122,6 @@ bool VulkanPass_CreateSwapchainPass(
     MemoryZeroItem(pass);
     pass->target.type = SWAPCHAIN_TARGET;
 
-    swapchain_target_t *target = &pass->target.swapchain_target;
-
-
-    // TODO copy pipelines from existing swapchain pass if it exists
-
-    if (!VulkanImage_CreateDepthResources(device, swapchain->extent,
-                                          physical_device_memory_properties,
-                                          g_passes.depth_format, &target->depth_image,
-                                          &target->depth_image_view, &target->depth_image_memory))
-    {
-        Log(ERROR, "failed to create depth resources for swapchain pass");
-        return false;
-    }
-
     if (!create_swapchain_render_pass(device, swapchain->format, g_passes.depth_format,
                                       &pass->vk_render_pass))
     {
@@ -139,13 +129,9 @@ bool VulkanPass_CreateSwapchainPass(
         return false;
     }
 
-    if (!VulkanImage_CreateFramebuffers(device, swapchain->image_views, MAX_FRAMES_IN_FLIGHT,
-                                        target->depth_image_view, swapchain->extent,
-                                        pass->vk_render_pass, target->framebuffers))
-    {
-        Log(ERROR, "failed to create swapchain framebuffers");
+    if (!create_swapchain_target(device, physical_device_memory_properties, swapchain,
+                                 pass->vk_render_pass, &pass->target.swapchain_target))
         return false;
-    }
 
     pass->draw_commands = arena_push_array(arena, draw_command_t, SWAPCHAIN_PASS_MAX_DRAW_COMMANDS);
     pass->draw_command_capacity = SWAPCHAIN_PASS_MAX_DRAW_COMMANDS;
@@ -154,11 +140,65 @@ bool VulkanPass_CreateSwapchainPass(
     pass->extent = swapchain->extent;
     pass->active = true;
 
-    // TODO rebuild all pipelines
-
     g_passes.swapchain_set = true;
 
     Log(INFO, "Created Swapchain pass");
+
+    return true;
+}
+
+/* rebuilds the extent-dependent target resources after a swapchain
+   recreation; the render pass object and the pipelines survive since the
+   swapchain format is unchanged and viewport/scissor are dynamic */
+bool VulkanPass_RecreateSwapchainPass(
+    VkDevice device, VkPhysicalDeviceMemoryProperties physical_device_memory_properties,
+    swapchain_t *swapchain)
+{
+    Assert(g_passes.swapchain_set && g_passes.swapchain_pass.active);
+
+    render_pass_t *pass = &g_passes.swapchain_pass;
+    Assert(pass->target.type == SWAPCHAIN_TARGET);
+
+    swapchain_target_t *target = &pass->target.swapchain_target;
+
+    destroy_swapchain_target(device, target);
+    MemoryZeroItem(target);
+
+    if (!create_swapchain_target(device, physical_device_memory_properties, swapchain,
+                                 pass->vk_render_pass, target))
+    {
+        pass->active = false;
+        return false;
+    }
+
+    pass->extent = swapchain->extent;
+
+    Log(INFO, "Recreated swapchain pass [%ux%u]", swapchain->extent.width,
+        swapchain->extent.height);
+
+    return true;
+}
+
+static bool create_swapchain_target(VkDevice device,
+                                    VkPhysicalDeviceMemoryProperties memory_properties,
+                                    swapchain_t *swapchain, VkRenderPass render_pass,
+                                    swapchain_target_t *target)
+{
+    if (!VulkanImage_CreateDepthResources(device, swapchain->extent, memory_properties,
+                                          g_passes.depth_format, &target->depth_image,
+                                          &target->depth_image_view, &target->depth_image_memory))
+    {
+        Log(ERROR, "failed to create depth resources for swapchain pass");
+        return false;
+    }
+
+    if (!VulkanImage_CreateFramebuffers(device, swapchain->image_views, MAX_FRAMES_IN_FLIGHT,
+                                        target->depth_image_view, swapchain->extent,
+                                        render_pass, target->framebuffers))
+    {
+        Log(ERROR, "failed to create swapchain framebuffers");
+        return false;
+    }
 
     return true;
 }
@@ -235,7 +275,7 @@ static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
     return true;
 }
 
-pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, renderpass_handle_t pass_handle,
+pipeline_handle_t VulkanPass_AddPipeline(VkDevice device, renderpass_handle_t pass_handle,
                                          const pipeline_config_t *config)
 {
     render_pass_t *pass = get_render_pass(pass_handle);
@@ -252,8 +292,7 @@ pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, render
     }
 
     pipeline_t *pipeline = &pass->pipelines[pass->pipeline_count];
-    if (!VulkanPipeline_Create(arena, device, pass->vk_render_pass, pass->extent, config,
-                               pipeline))
+    if (!VulkanPipeline_Create(device, pass->vk_render_pass, config, pipeline))
         return PIPELINE_HANDLE_INVALID;
 
     return (pipeline_handle_t)pass->pipeline_count++;
@@ -353,6 +392,22 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     };
 
     vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    /* y is flipped to get a gl-style y-up clip space (VK_KHR_maintenance1) */
+    VkViewport viewport = {
+        .x = 0.0f,
+        .y = (f32)pass->extent.height,
+        .width = (f32)pass->extent.width,
+        .height = -(f32)pass->extent.height,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+    VkRect2D scissor = {
+        .offset = {0, 0},
+        .extent = pass->extent,
+    };
+    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
     // TODO sort draw commands by pipeline to minimize rebinds
 

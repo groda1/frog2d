@@ -13,7 +13,6 @@
 
 #define ROT_SPEED_DEG_PER_S 25.0f
 #define WOBBLE_SPEED        5.0f
-#define TRIANGLE_SCALE      512.0f
 
 typedef struct
 {
@@ -46,8 +45,8 @@ bool Game_Init(SDL_Window *window)
     g_game.push_constant.wobble = 0.0f;
 
     pipeline_config_t pipeline_config = {
-        .vertex_shader_path = string_lit("shaders/hello_triangle.vert.spv"),
-        .fragment_shader_path = string_lit("shaders/hello_triangle.frag.spv"),
+        .vertex_shader = Renderer_LoadShader("shaders/hello_triangle.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/hello_triangle.frag.spv"),
         .push_constant_size = sizeof(push_constant_t),
         .vertex_stride = sizeof(colored_vertex_t),
         .vertex_attribute_count = 2,
@@ -94,26 +93,28 @@ void Game_HandleKeyUp(SDL_Keycode key)
 void Game_HandleResize(u32 width, u32 height)
 {
     Engine_HandleResize(width, height);
+
 }
 
 void Game_Tick(void)
 {
     f32 delta_time = Engine_BeginFrame();
 
+    window_extent_t extent = Renderer_GetWindowExtent();
+
     /* update */
     quat rotation = HMM_QFromAxisAngle_RH(V3(0.0f, 0.0f, 1.0f),
                                           HMM_AngleDeg(-delta_time * ROT_SPEED_DEG_PER_S));
     g_game.orientation = HMM_MulQ(g_game.orientation, rotation);
     g_game.push_constant.wobble += delta_time * WOBBLE_SPEED;
+    g_game.position = V3((f32)extent.width / 2.0f, (f32)extent.height / 2.0f, 0.0f);
 
-    // TODO the view/projection belongs in a uniform buffer, but descriptor
-    // sets are not ported yet, so it is baked into the push constant transform
-    window_extent_t extent = Renderer_GetWindowExtent();
     mat4 projection = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width,
                                              0.0f, (f32)extent.height, -1.0f, 1.0f);
+    f32 size = extent.height / 2;
     mat4 model = HMM_MulM4(HMM_Translate(g_game.position),
                            HMM_MulM4(HMM_QToM4(g_game.orientation),
-                                     HMM_Scale(V3(TRIANGLE_SCALE, TRIANGLE_SCALE, TRIANGLE_SCALE))));
+                                     HMM_Scale(V3(size, size, size))));
     g_game.push_constant.transform = HMM_MulM4(projection, model);
 
     /* draw */

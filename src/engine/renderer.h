@@ -1,12 +1,18 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
-#include "core.h"
+#include "memory_arena.h"
 
 #include "mesh.h"
 #include "render_types.h"
 
+bool Renderer_Init(arena_t *arena);
+
 window_extent_t Renderer_GetWindowExtent(void);
+
+/* loads a spir-v file relative to the executable directory; the returned code
+   lives on the renderer arena and stays valid for the engine's lifetime */
+shader_code_t Renderer_LoadShader(const char *path);
 
 pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
                                        const pipeline_config_t *config);

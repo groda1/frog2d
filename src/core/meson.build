@@ -4,6 +4,7 @@ subdir('types')
 core_sources += files(
     'memory_arena.c',
     'core_string.c',
+    'file.c',
     'log.c'
 )
 
