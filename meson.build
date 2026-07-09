@@ -7,6 +7,10 @@ project('frog2d', 'c',
         ]
 )
 
+if get_option('buildtype').startswith('debug' )
+    add_project_arguments('-DDEBUG_BUILD', language: 'c')
+endif
+
 cc = meson.get_compiler('c')
 
 sources = []

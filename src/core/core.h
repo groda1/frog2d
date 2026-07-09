@@ -61,6 +61,17 @@ typedef double      f64;
 // Assert
 #define StaticAssert            _Static_assert
 
+#define Trap() __builtin_trap()
+#define AssertAlways(x) \
+    if (!(x))           \
+    {                   \
+        Trap();         \
+    }
+#ifdef DEBUG_BUILD
+#define Assert(x) AssertAlways(x)
+#else
+#define Assert(x) (void)(x)
+#endif
 
 // Memory functions
 #define MemoryCopy(dst, src, size)      memcpy((dst), (src), (size))
