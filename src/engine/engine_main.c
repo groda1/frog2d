@@ -7,6 +7,7 @@
 #include "engine_main.h"
 #include "mesh.h"
 #include "renderer.h"
+#include "text.h"
 #include "vulkan_renderer.h"
 
 static arena_t *g_engine_arena;
@@ -24,6 +25,9 @@ bool Engine_Init(SDL_Window *window)
     if (!MeshManager_Init(g_engine_arena))
         goto fail_renderer;
 
+    if (!Text_Init(g_engine_arena, 8192))
+        goto fail_renderer;
+
     return true;
 
 fail_renderer:
@@ -37,6 +41,7 @@ fail:
 void Engine_Destroy(void)
 {
     VulkanRenderer_Destroy();
+    Text_Destroy();
 
     MemoryArena_Print(g_engine_arena);
     MemoryArena_Destroy(g_engine_arena);
@@ -48,6 +53,8 @@ void Engine_HandleResize(u32 width, u32 height)
     Log(DEBUG, "window resized to %ux%u", width, height);
 
     VulkanRenderer_HandleResize(width, height);
+
+    Text_HandleResize(width, height);
 }
 
 f32 Engine_BeginFrame(void)
@@ -63,10 +70,15 @@ f32 Engine_BeginFrame(void)
 
     VulkanRenderer_BeginFrame();
 
+    Text_BeginFrame();
+
     return delta_time;
 }
 
 void Engine_EndFrame(void)
 {
+    Text_EndFrame();
+
+    // Needs to be last
     VulkanRenderer_EndFrame();
 }

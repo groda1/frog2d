@@ -33,7 +33,9 @@ struct _textures_t
     VkSampler   samplers[MAX_SAMPLERS];
     u32         sampler_count;
 
-    /* one global runtime-sized descriptor array; texture handles index it */
+    /* one global runtime-sized descriptor array; a texture's handle is its
+       element index. handles are 1-based (0 = invalid) so element 0 is
+       never written, which the partially-bound binding allows */
     VkDescriptorSetLayout   descriptor_set_layout;
     VkDescriptorPool        descriptor_pool;
     VkDescriptorSet         descriptor_set;
@@ -144,7 +146,7 @@ texture_handle_t VulkanTexture_Create(u32 width, u32 height, const u8 *rgba_data
         Log(ERROR, "maximum number of textures reached");
         return TEXTURE_HANDLE_INVALID;
     }
-    if (sampler >= s_textures.sampler_count)
+    if (sampler == SAMPLER_HANDLE_INVALID || sampler > s_textures.sampler_count)
     {
         Log(ERROR, "invalid sampler handle %u", sampler);
         return TEXTURE_HANDLE_INVALID;
@@ -173,11 +175,11 @@ texture_handle_t VulkanTexture_Create(u32 width, u32 height, const u8 *rgba_data
         return TEXTURE_HANDLE_INVALID;
     }
 
-    texture_handle_t handle = s_textures.texture_count++;
-    s_textures.textures[handle] = texture;
+    s_textures.textures[s_textures.texture_count++] = texture;
+    texture_handle_t handle = (texture_handle_t)s_textures.texture_count; /* 1-based */
 
     VkDescriptorImageInfo image_info = {
-        .sampler = s_textures.samplers[sampler],
+        .sampler = s_textures.samplers[sampler - 1],
         .imageView = texture.image_view,
         .imageLayout = layout,
     };
@@ -230,10 +232,9 @@ sampler_handle_t VulkanTexture_CreateSampler()
         return SAMPLER_HANDLE_INVALID;
     }
 
-    sampler_handle_t handle = s_textures.sampler_count++;
-    s_textures.samplers[handle] = sampler;
+    s_textures.samplers[s_textures.sampler_count++] = sampler;
 
-    return handle;
+    return (sampler_handle_t)s_textures.sampler_count; /* 1-based */
 }
 
 VkDescriptorSetLayout VulkanTexture_GetDescriptorSetLayout()

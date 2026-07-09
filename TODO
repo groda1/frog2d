@@ -42,10 +42,15 @@ texture path follow-ups:
   generate mips at upload (vkCmdBlitImage chain)
 - sampler config is hardcoded (NEAREST mag / LINEAR min, repeat, aniso 16);
   expose filtering/addressing per sampler, e.g. sampler_config_t
-- storage buffers (BDA, done) are fixed-capacity; growth would be: allocate a
-  bigger buffer, hand out the new address next frame, retire the old buffer
-  after MAX_FRAMES_IN_FLIGHT frames — no descriptor or pipeline tracking
-  needed, which was the painful part in vulkrap
+- storage buffers (BDA, done) are fixed-capacity; agreed sequencing toward
+  growth (planned 2026-07-08): 1) deferred-destroy queue in vulkan_buffer.c
+  (frame counter + retire list, destroy after MAX_FRAMES_IN_FLIGHT frames;
+  also useful for texture streaming later), 2) per-frame GPU arena (see
+  above) which handles all rewritten-every-frame data and only grows at
+  frame boundaries, 3) per-object growth in SetObjectData only if something
+  persistent actually hits its cap. Arena staging should be persistently
+  mapped; ReBAR host-visible device-local is an option to skip staging
+  entirely for transient data
 - uniform buffers (set 1) could migrate into the global set model too; then
   every pipeline shares one layout and descriptor code exists in exactly one
   place

@@ -6,10 +6,13 @@
 /* engine-side rendering types; implemented by the vulkan renderer */
 
 #define SWAPCHAIN_PASS_HANDLE   U32_MAX
-#define PIPELINE_HANDLE_INVALID U32_MAX
-#define BUFFER_OBJECT_HANDLE_INVALID U32_MAX
-#define TEXTURE_HANDLE_INVALID  U32_MAX
-#define SAMPLER_HANDLE_INVALID  U32_MAX
+
+/* 0 is the invalid value for every handle type (handles are 1-based indices
+   into their registries), so zero-initialized structs hold invalid handles */
+#define PIPELINE_HANDLE_INVALID 0
+#define BUFFER_OBJECT_HANDLE_INVALID 0
+#define TEXTURE_HANDLE_INVALID  0
+#define SAMPLER_HANDLE_INVALID  0
 
 #define MAX_VERTEX_ATTRIBUTES 8
 #define MAX_UNIFORM_BINDINGS  4
@@ -70,6 +73,7 @@ typedef struct
 typedef struct _pipeline_config_t pipeline_config_t;
 struct _pipeline_config_t
 {
+    const char *name;
     shader_code_t vertex_shader;
     shader_code_t fragment_shader;
 

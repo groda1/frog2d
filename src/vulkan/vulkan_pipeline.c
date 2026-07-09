@@ -1,6 +1,7 @@
 #include "core.h"
 #include "log.h"
 
+#include "render_types.h"
 #include "vulkan_buffer.h"
 #include "vulkan_context.h"
 #include "vulkan_pipeline.h"
@@ -204,7 +205,7 @@ bool VulkanPipeline_Create(VkFormat color_format, VkFormat depth_format,
     layout = VK_NULL_HANDLE;
 
     result = true;
-    Log(INFO, "Created pipeline");
+    Log(INFO, "Created pipeline: %s", config->name);
 
 exit:
     if (!result)

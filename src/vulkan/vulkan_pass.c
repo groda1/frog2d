@@ -84,6 +84,7 @@ struct _vk_passes
 static vk_passes_t s_passes = {};
 
 static render_pass_t *get_render_pass(renderpass_handle_t pass_handle);
+static const pipeline_t *get_pipeline(const render_pass_t *pass, pipeline_handle_t handle);
 static bool create_swapchain_target(swapchain_t *swapchain, swapchain_target_t *target);
 static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index);
 static void destroy_render_pass(render_pass_t *pass);
@@ -206,7 +207,17 @@ pipeline_handle_t VulkanPass_AddPipeline(renderpass_handle_t pass_handle,
     if (!VulkanPipeline_Create(pass->color_format, s_passes.depth_format, config, pipeline))
         return PIPELINE_HANDLE_INVALID;
 
-    return (pipeline_handle_t)pass->pipeline_count++;
+    pass->pipeline_count++;
+
+    return (pipeline_handle_t)pass->pipeline_count; /* 1-based */
+}
+
+/* pipeline handles are 1-based indices so 0 stays the invalid handle */
+static const pipeline_t *get_pipeline(const render_pass_t *pass, pipeline_handle_t handle)
+{
+    Assert(handle != PIPELINE_HANDLE_INVALID && handle <= pass->pipeline_count);
+
+    return &pass->pipelines[handle - 1];
 }
 
 static render_pass_t *get_render_pass(renderpass_handle_t pass_handle)
@@ -245,12 +256,10 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
         return;
     }
 
-    Assert(draw_command->pipeline < pass->pipeline_count);
-
     draw_command_t *slot = &pass->draw_commands[pass->draw_command_count++];
     *slot = *draw_command;
 
-    const pipeline_t *pipeline = &pass->pipelines[draw_command->pipeline];
+    const pipeline_t *pipeline = get_pipeline(pass, draw_command->pipeline);
     if (pipeline->push_constant_size > 0 && draw_command->push_constant_data)
     {
         u8 *push_constant_copy = arena_push_array_no_zero(s_passes.frame_arena, u8,
@@ -410,8 +419,7 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     {
         const draw_command_t *command = &pass->draw_commands[i];
 
-        Assert(command->pipeline < pass->pipeline_count);
-        const pipeline_t *pipeline = &pass->pipelines[command->pipeline];
+        const pipeline_t *pipeline = get_pipeline(pass, command->pipeline);
 
         if (pipeline != bound_pipeline)
         {

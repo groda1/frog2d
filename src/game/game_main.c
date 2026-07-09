@@ -1,13 +1,15 @@
 #include "HandmadeMath.h"
 #include "core.h"
 #include "core_math.h"
+#include "core_string.h"
 #include "log.h"
 
 #include "engine_main.h"
+#include "engine_types.h"
 #include "game_main.h"
 #include "mesh.h"
 #include "renderer.h"
-
+#include "text.h"
 
 /* port of the vulkrap hello_krap example: a wobbling triangle */
 
@@ -36,11 +38,7 @@ typedef struct
     u32 texture;
 } textured_push_constant_t;
 
-typedef struct
-{
-    mat4 view;
-    mat4 proj;
-} view_projection_t;
+
 
 /* std430 layout of 2d_text_ssbo.vert's instance_data */
 typedef struct
@@ -326,10 +324,9 @@ void Game_HandleResize(u32 width, u32 height)
 {
     Engine_HandleResize(width, height);
 
-    window_extent_t extent = Renderer_GetWindowExtent();
     view_projection_t vp2 = {
         .view = HMM_M4D(1.0f),
-        .proj = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width, 0.0f, (f32)extent.height, -1.0, 1.0)
+        .proj = HMM_Orthographic_RH_NO(0.0f, (f32)width, 0.0f, (f32)height, -1.0, 1.0)
     };
     Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
 
@@ -407,6 +404,10 @@ void Game_Tick(void)
     Renderer_DrawMeshInstanced(SWAPCHAIN_PASS_HANDLE, g_game.text_pipeline, &text_push_constant,
                                g_game.text_instances, g_game.text_instance_count,
                                g_game.quad_mesh);
+
+
+    Text_Draw(100, 100, string_lit("test 123 !# <foobar>"));
+    Text_Draw(0, 0, string_lit("test 123 !# <foobar>"));
 
     Engine_EndFrame();
 }

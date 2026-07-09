@@ -65,7 +65,6 @@ struct _vk_renderer_t
     // memory
     arena_t *global_arena;      // Eternal lifetime
     arena_t *frame_arena;       // Frame lifetime
-    arena_t *swapchain_arena;   // Swapchain lifetime
 
     // data
     VkInstance                          instance;
@@ -117,7 +116,6 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 
     s_renderer->global_arena =      arena;
     s_renderer->frame_arena =       MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
-    s_renderer->swapchain_arena =   MemoryArena_CreateP("swapchain-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
 
@@ -152,8 +150,6 @@ fail:
 
     if (s_renderer->frame_arena)
         MemoryArena_Destroy(s_renderer->frame_arena);
-    if (s_renderer->swapchain_arena)
-        MemoryArena_Destroy(s_renderer->swapchain_arena);
     s_renderer = NULL;
     return false;
 }
@@ -178,12 +174,10 @@ bool VulkanRenderer_Destroy()
         vkDestroySurfaceKHR(s_renderer->instance, s_renderer->surface, NULL);
         vkDestroyInstance(s_renderer->instance, NULL);
 
-        MemoryArena_Print(s_renderer->swapchain_arena);
-        MemoryArena_Destroy(s_renderer->swapchain_arena);
         MemoryArena_Print(s_renderer->frame_arena);
         MemoryArena_Destroy(s_renderer->frame_arena);
     }
-
+    Log(INFO, "Vulkan renderer destroyed");
     return true;
 }
 

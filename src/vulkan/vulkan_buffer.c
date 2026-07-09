@@ -42,6 +42,7 @@ struct _buffer_object_t
 
 static bool copy_buffer_sync(VkCommandPool command_pool, VkQueue submit_queue, VkBuffer src,
                              VkBuffer dst, VkDeviceSize size);
+static buffer_object_t *get_buffer_object(buffer_object_handle_t handle);
 static bool create_vulkan_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                  VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,
                                  VkDeviceMemory *memory_out);
@@ -59,6 +60,14 @@ struct _buffers_t
 
 static buffers_t s_buffers = {};
 
+
+/* buffer object handles are 1-based indices so 0 stays the invalid handle */
+static buffer_object_t *get_buffer_object(buffer_object_handle_t handle)
+{
+    Assert(handle != BUFFER_OBJECT_HANDLE_INVALID && handle <= s_buffers.buffer_object_count);
+
+    return s_buffers.buffer_objects[handle - 1];
+}
 
 bool VulkanBuffer_Init()
 {
@@ -208,22 +217,23 @@ buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
         }
     }
 
-    buffer_object_handle_t handle = s_buffers.buffer_object_count;
-    s_buffers.buffer_objects[handle] = object;
-    s_buffers.buffer_object_count++;
+    s_buffers.buffer_objects[s_buffers.buffer_object_count++] = object;
 
-    return handle;
+    return (buffer_object_handle_t)s_buffers.buffer_object_count; /* 1-based */
 }
 
 bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data, u64 size)
 {
-    if (handle >= s_buffers.buffer_object_count)
+    // TODO this is braindamaged. the user should write directly to the object cpu_buf.
+    // Maybe add a offset as parameter so t he user can write it directly.
+
+    if (handle == BUFFER_OBJECT_HANDLE_INVALID || handle > s_buffers.buffer_object_count)
     {
         Log(ERROR, "invalid buffer object handle %u", handle);
         return false;
     }
 
-    buffer_object_t *object = s_buffers.buffer_objects[handle];
+    buffer_object_t *object = get_buffer_object(handle);
     if (size > object->capacity)
     {
         Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", size, object->capacity);
@@ -241,26 +251,24 @@ bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data,
 
 VkBuffer VulkanBuffer_GetDeviceBuffer(buffer_object_handle_t handle, u32 frame_index)
 {
-    Assert(handle < s_buffers.buffer_object_count);
     Assert(frame_index < MAX_FRAMES_IN_FLIGHT);
 
-    return s_buffers.buffer_objects[handle]->device_buffers[frame_index];
+    return get_buffer_object(handle)->device_buffers[frame_index];
 }
 
 u64 VulkanBuffer_GetObjectCapacity(buffer_object_handle_t handle)
 {
-    Assert(handle < s_buffers.buffer_object_count);
-
-    return s_buffers.buffer_objects[handle]->capacity;
+    return get_buffer_object(handle)->capacity;
 }
 
 VkDeviceAddress VulkanBuffer_GetDeviceAddress(buffer_object_handle_t handle, u32 frame_index)
 {
-    Assert(handle < s_buffers.buffer_object_count);
-    Assert(frame_index < MAX_FRAMES_IN_FLIGHT);
-    Assert(s_buffers.buffer_objects[handle]->type == BO_STORAGE);
+    buffer_object_t *object = get_buffer_object(handle);
 
-    return s_buffers.buffer_objects[handle]->device_addresses[frame_index];
+    Assert(frame_index < MAX_FRAMES_IN_FLIGHT);
+    Assert(object->type == BO_STORAGE);
+
+    return object->device_addresses[frame_index];
 }
 
 bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
@@ -279,7 +287,7 @@ bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_in
         return false;
     }
 
-    for (u32 i = 0 ; i < s_buffers.buffer_object_count; i++)
+    for (u32 i = 0; i < s_buffers.buffer_object_count; i++)
     {
         buffer_object_t *bo = s_buffers.buffer_objects[i];
         if (!bo->dirty[image_index])

@@ -34,6 +34,7 @@ bool MeshManager_Init(arena_t *arena)
 
     load_predefined_meshes();
 
+    Log(INFO, "Mesh manager initialized");
     return true;
 }
 

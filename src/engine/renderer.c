@@ -98,6 +98,8 @@ void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle
                                 buffer_object_handle_t instance_buffer, u32 instance_count,
                                 mesh_handle_t mesh_handle)
 {
+    // TODO: This is braindamaged. A hashmap lookup for a mesh should not happen for every
+    // draw call
     const mesh_t *mesh = MeshManager_GetMesh(mesh_handle);
 
     draw_command_t draw_command = {
