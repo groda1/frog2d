@@ -95,7 +95,6 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
         goto _fail;
 
 
-
     Log(INFO, "Vulkan renderer initialized");
     return true;
 
@@ -525,6 +524,7 @@ static bool create_logical_device()
 
     return true;
 }
+
 
 AttributeMaybeUnused
 bool query_instance_layer_support(string layer_name)
