@@ -40,7 +40,7 @@ struct _queue_families_t
 typedef struct _swapchain_t swapchain_t;
 struct _swapchain_t
 {
-    VkSwapchainKHR swapchain;
+    VkSwapchainKHR handle;
 
     VkImage images[IMAGE_COUNT];
     VkImageView image_views[IMAGE_COUNT];
@@ -89,7 +89,6 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     renderer = arena_push(arena, vk_renderer_t);
     
     renderer->arena = arena;
-
     renderer->frame_arena = MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
@@ -118,6 +117,7 @@ bool VulkanRenderer_Destroy()
 {
     if (renderer)
     {
+        vkDestroySwapchainKHR(renderer->device, renderer->swapchain.handle, NULL);
         vkDestroyCommandPool(renderer->device, renderer->command_pool, NULL);
         vkDestroyDevice(renderer->device, NULL);
         vkDestroySurfaceKHR(renderer->instance, renderer->surface, NULL);
@@ -201,7 +201,29 @@ static bool create_swapchain(bool vsync)
         .imageArrayLayers = 1
     };
 
-    return false;
+    if (vkCreateSwapchainKHR(renderer->device,
+                             &create_info,
+                             NULL,
+                             &renderer->swapchain.handle) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to create swapchain");
+        return false;
+    }
+
+    u32 image_count = IMAGE_COUNT;
+    VkResult ret = vkGetSwapchainImagesKHR(renderer->device, 
+            renderer->swapchain.handle,
+            &image_count,
+            renderer->swapchain.images);
+    if (ret != VK_SUCCESS && ret != VK_INCOMPLETE)
+    {
+        Log(ERROR, "failed to fetch swapchain images");
+        return false;
+    }
+
+    Log(INFO, "swapchain image count: %d", image_count);
+
+    return true;
 }
 
 
