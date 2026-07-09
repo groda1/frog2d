@@ -88,4 +88,7 @@ typedef double      f64;
 
 #define MemoryMatch(a, b, z) (MemoryCompare((a), (b), (z)) == 0)
 
+// Misc helper macros
+#define ArrayCount(a) (sizeof(a) / sizeof((a)[0]))
+
 #endif
