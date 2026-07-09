@@ -75,6 +75,7 @@ static vk_passes_t g_passes = {};
 
 static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
                                          VkFormat depth_format, VkRenderPass *render_pass_out);
+static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index);
 static void destroy_render_pass(VkDevice device, render_pass_t *pass);
 static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target);
 
@@ -229,7 +230,57 @@ static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
     return true;
 }
 
-static bool bake_command_buffer()
+bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
+{
+    // TODO bake image target passes first, in pass order
+
+    Assert(g_passes.swapchain_set && g_passes.swapchain_pass.active);
+    return bake_command_buffer(&g_passes.swapchain_pass, command_buffer, image_index);
+}
+
+static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index)
+{
+    Assert(pass->active);
+    Assert(image_index < MAX_FRAMES_IN_FLIGHT);
+
+    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    switch (pass->target.type)
+    {
+    case SWAPCHAIN_TARGET:
+        framebuffer = pass->target.swapchain_target.framebuffers[image_index];
+        break;
+    case IMAGE_TARGET:
+        // TODO
+        return false;
+    }
+
+    VkClearValue clear_values[] = {
+        { .color = { .float32 = {0.05f, 0.05f, 0.1f, 1.0f} } },
+        { .depthStencil = { .depth = 1.0f, .stencil = 0 } },
+    };
+
+    VkRenderPassBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = pass->vk_render_pass,
+        .framebuffer = framebuffer,
+        .renderArea = {
+            .offset = {0, 0},
+            .extent = pass->extent,
+        },
+        .clearValueCount = ArrayCount(clear_values),
+        .pClearValues = clear_values,
+    };
+
+    vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    // TODO iterate the pass draw commands and bake each pipeline's commands,
+    // rebinding the pipeline only when it differs from the previous command
+    // (needs the pipeline port)
+
+    vkCmdEndRenderPass(command_buffer);
+
+    return true;
+}
 
 static void destroy_render_pass(VkDevice device, render_pass_t *pass)
 {
