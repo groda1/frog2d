@@ -6,6 +6,7 @@
 #include "log.h"
 
 #include "vulkan_renderer.h"
+#include "memory_arena.h"
 #include "vulkan_buffer.h"
 #include "vulkan_image.h"
 #include "vulkan_pass.h"
@@ -56,10 +57,12 @@ struct _frame_sync_t
 
 struct _vk_renderer_t
 {
-    arena_t *arena;
-    arena_t *frame_arena;
+    // memory
+    arena_t *global_arena;      // Eternal lifetime
+    arena_t *frame_arena;       // Frame lifetime
+    arena_t *swapchain_arena;   // Swapchain lifetime
 
-    /* data */
+    // data
     VkInstance                          instance;
     VkSurfaceKHR                        surface;
     VkExtent2D                          window_extent;
@@ -74,7 +77,7 @@ struct _vk_renderer_t
     swapchain_t                         swapchain;
     frame_sync_t                        frame_sync;
 
-    /* static buffers (vertex/index); freed at renderer destruction */
+    // static buffers (vertex/index); freed at renderer destruction
     VkBuffer                            static_buffers[MAX_STATIC_BUFFERS];
     VkDeviceMemory                      static_buffer_memories[MAX_STATIC_BUFFERS];
     u32                                 static_buffer_count;
@@ -114,8 +117,8 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
     u64 pos = MemoryArena_Pos(arena);
     g_renderer = arena_push(arena, vk_renderer_t);
 
-    g_renderer->arena = arena;
-    g_renderer->frame_arena = MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
+    g_renderer->global_arena =      arena;
+    g_renderer->frame_arena =       MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
 
@@ -169,6 +172,9 @@ bool VulkanRenderer_Destroy()
         vkDestroyInstance(g_renderer->instance, NULL);
     }
 
+    MemoryArena_Print(g_renderer->swapchain_arena);
+    MemoryArena_Destroy(g_renderer->swapchain_arena);
+    MemoryArena_Print(g_renderer->frame_arena);
     MemoryArena_Destroy(g_renderer->frame_arena);
 
     return true;
@@ -305,7 +311,7 @@ VkExtent2D VulkanRenderer_GetExtent()
 pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
                                              const pipeline_config_t *config)
 {
-    return VulkanPass_AddPipeline(g_renderer->arena, g_renderer->device, pass_handle, config);
+    return VulkanPass_AddPipeline(g_renderer->global_arena, g_renderer->device, pass_handle, config);
 }
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)

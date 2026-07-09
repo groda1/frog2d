@@ -254,8 +254,6 @@ pipeline_handle_t VulkanPass_AddPipeline(arena_t *arena, VkDevice device, render
         return PIPELINE_HANDLE_INVALID;
     }
 
-    // TODO store the config so pipelines can be rebuilt on swapchain recreation
-
     pipeline_t *pipeline = &pass->pipelines[pass->pipeline_count];
     if (!VulkanPipeline_Create(arena, device, pass->vk_render_pass, pass->extent, config,
                                pipeline))

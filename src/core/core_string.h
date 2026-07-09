@@ -9,9 +9,19 @@
 
 typedef struct
 {
-    u8 *str;
-    u64 len;
-    u64 cap;
+    union
+    {
+        struct
+        {
+            u8 *str;
+            u64 len;
+            u64 cap;
+        };
+        struct
+        {
+            char *c_str;
+        };
+    };
 } string;
 
 #define string_lit(S)  string_from_l((const char*)(S), sizeof(S) - 1)

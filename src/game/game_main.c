@@ -1,5 +1,6 @@
 #include "core.h"
 #include "core_math.h"
+#include "core_string.h"
 #include "log.h"
 
 #include "engine_main.h"
@@ -45,8 +46,8 @@ bool Game_Init(SDL_Window *window)
     g_game.push_constant.wobble = 0.0f;
 
     pipeline_config_t pipeline_config = {
-        .vertex_shader_path = "shaders/hello_triangle.vert.spv",
-        .fragment_shader_path = "shaders/hello_triangle.frag.spv",
+        .vertex_shader_path = string_lit("shaders/hello_triangle.vert.spv"),
+        .fragment_shader_path = string_lit("shaders/hello_triangle.frag.spv"),
         .push_constant_size = sizeof(push_constant_t),
         .vertex_stride = sizeof(colored_vertex_t),
         .vertex_attribute_count = 2,

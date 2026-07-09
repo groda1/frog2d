@@ -56,7 +56,13 @@ string string_fmtv(arena_t *arena, const char *fmt, va_list args)
 }
 
 string string_fmt_a(arena_t arena, string *s, ...);
-string string_clone(arena_t *arena, string src);
+
+string string_clone(arena_t *arena, string src)
+{
+    string new = string_new(arena, src.len + 1);
+    string_copy(src, &new);
+    return new;
+}
 
 bool string_match(string s1, string s2)
 {

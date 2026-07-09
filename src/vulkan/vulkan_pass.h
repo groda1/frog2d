@@ -5,11 +5,6 @@
 
 #include "render_types.h"
 #include "vulkan_renderer.h"
-#include "vulkan_pipeline.h"
-
-
-
-
 
 bool VulkanPass_Init(VkInstance instance, VkPhysicalDevice physical_device);
 bool VulkanPass_Destroy(VkDevice device);

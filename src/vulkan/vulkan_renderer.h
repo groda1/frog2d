@@ -7,8 +7,6 @@
 #include "memory_arena.h"
 
 #include "render_types.h"
-#include "vulkan_pipeline.h"
-
 
 #define MAX_FRAMES_IN_FLIGHT 3
 

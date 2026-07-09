@@ -2,6 +2,7 @@
 #define RENDER_TYPES_H
 
 #include "core.h"
+#include "core_string.h"
 
 /* engine-side rendering types; implemented by the vulkan renderer */
 
@@ -37,9 +38,8 @@ typedef struct
 typedef struct _pipeline_config_t pipeline_config_t;
 struct _pipeline_config_t
 {
-    /* spv files, relative to the executable directory */
-    const char *vertex_shader_path;
-    const char *fragment_shader_path;
+    string vertex_shader_path;
+    string fragment_shader_path;
 
     u32 push_constant_size; // 0 = no push constants; vertex stage only for now
 

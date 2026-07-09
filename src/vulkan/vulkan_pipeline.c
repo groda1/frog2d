@@ -1,8 +1,7 @@
 #include <stdio.h>
 
-#include <SDL3/SDL_filesystem.h>
-
 #include "core.h"
+#include "core_string.h"
 #include "log.h"
 
 #include "vulkan_pipeline.h"
@@ -10,17 +9,23 @@
 #define MAX_SHADER_PATH 512
 
 static VkFormat vertex_format_to_vk(vertex_format_t format);
-static u8 *read_shader_file(arena_t *arena, const char *path, u64 *size_out);
-static bool create_shader_module(VkDevice device, arena_t *scratch, const char *path,
+static u8 *read_shader_file(arena_t *arena, string path, u64 *size_out);
+static bool create_shader_module(VkDevice device, arena_t *scratch, string path,
                                  VkShaderModule *module_out);
 
 bool VulkanPipeline_Create(arena_t *arena, VkDevice device, VkRenderPass render_pass,
                            VkExtent2D extent, const pipeline_config_t *config,
                            pipeline_t *pipeline_out)
 {
+
     Assert(config->vertex_attribute_count <= MAX_VERTEX_ATTRIBUTES);
 
     bool result = false;
+
+    MemoryCopyStruct(&pipeline_out->config, config);
+    pipeline_out->config.vertex_shader_path = string_clone(arena, config->vertex_shader_path);
+    pipeline_out->config.fragment_shader_path = string_clone(arena, config->fragment_shader_path);
+
     u64 scratch_pos = MemoryArena_Pos(arena);
 
     VkShaderModule vertex_shader = VK_NULL_HANDLE;
@@ -229,16 +234,13 @@ static VkFormat vertex_format_to_vk(vertex_format_t format)
     return VK_FORMAT_UNDEFINED;
 }
 
-static u8 *read_shader_file(arena_t *arena, const char *path, u64 *size_out)
+static u8 *read_shader_file(arena_t *arena, string path, u64 *size_out)
 {
-    char full_path[MAX_SHADER_PATH];
-    snprintf(full_path, sizeof(full_path), "%s%s", SDL_GetBasePath(), path);
-
-    FILE *file = fopen(full_path, "rb");
+    FILE *file = fopen(path.c_str, "rb");
     if (!file)
     {
-        Log(ERROR, "failed to open shader file: %s", full_path);
-        return NULL;
+        Log(ERROR, "failed to open shader file: %s", path);
+        goto error;
     }
 
     fseek(file, 0, SEEK_END);
@@ -247,26 +249,28 @@ static u8 *read_shader_file(arena_t *arena, const char *path, u64 *size_out)
 
     if (size <= 0)
     {
-        Log(ERROR, "failed to read shader file: %s", full_path);
-        fclose(file);
-        return NULL;
+        Log(ERROR, "failed to read shader file: %s", path);
+        goto error;
     }
 
     u8 *data = arena_push_array_no_zero(arena, u8, (u64)size);
     if (fread(data, 1, (u64)size, file) != (u64)size)
     {
-        Log(ERROR, "failed to read shader file: %s", full_path);
-        fclose(file);
-        return NULL;
+        Log(ERROR, "failed to read shader file: %s", path);
+        goto error;
     }
 
     fclose(file);
-
     *size_out = (u64)size;
     return data;
+
+error:
+    if (file)
+        fclose(file);
+    return NULL;
 }
 
-static bool create_shader_module(VkDevice device, arena_t *scratch, const char *path,
+static bool create_shader_module(VkDevice device, arena_t *scratch, string path,
                                  VkShaderModule *module_out)
 {
     u64 size;

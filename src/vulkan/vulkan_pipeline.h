@@ -16,6 +16,8 @@ struct _pipeline_t
     VkPipelineLayout    layout;
     u32                 push_constant_size;
 
+    pipeline_config_t   config;
+
     // TODO descriptor sets
 };
 
