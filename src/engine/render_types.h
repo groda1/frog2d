@@ -43,7 +43,6 @@ typedef struct
 typedef struct _pipeline_config_t pipeline_config_t;
 struct _pipeline_config_t
 {
-    /* spir-v; must stay alive for the pipeline's lifetime (rebuilds) */
     shader_code_t vertex_shader;
     shader_code_t fragment_shader;
 
@@ -58,5 +57,12 @@ struct _pipeline_config_t
     // TODO uniform buffers / samplers (descriptor set layouts)
     // TODO vertex topology (always triangle list for now)
 };
+
+typedef enum
+{
+    BO_UNIFORM_VERTEX,
+    BO_UNIFORM_FRAGMENT,
+    BO_STORAGE,
+} buffer_object_type_t;
 
 #endif

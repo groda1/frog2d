@@ -1,5 +1,6 @@
 
-
+- extern device, command_pool, graphics_queues and so on
+- mesh shoudlnt ocntain vkbuffers and creating static buffers shouldnt return them either. abstract
 - uniforms
 - resizing (pipeline recreation)
 - textures
@@ -7,3 +8,4 @@
 - image render target
 - console
 - sort draw commands by pipeline to minimize rebinds
+- investigate ASAN with arena. How to intercept and so on

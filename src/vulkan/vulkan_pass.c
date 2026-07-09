@@ -353,9 +353,30 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
 bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
 {
     // TODO bake image target passes first, in pass order
-
     Assert(g_passes.swapchain_set && g_passes.swapchain_pass.active);
-    return bake_command_buffer(&g_passes.swapchain_pass, command_buffer, image_index);
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+
+    if (vkResetCommandBuffer(command_buffer, 0) != VK_SUCCESS ||
+        vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to begin draw command buffer");
+        return false;
+    }
+
+    if (!bake_command_buffer(&g_passes.swapchain_pass, command_buffer, image_index))
+        return false;
+
+    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to end draw command buffer");
+        return false;
+    }
+
+    return true;
 }
 
 static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buffer, u32 image_index)

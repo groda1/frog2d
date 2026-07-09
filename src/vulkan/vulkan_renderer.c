@@ -23,8 +23,6 @@
 #define MAX_SURFACE_FORMATS         8
 #define MAX_PRESENT_MODES           8
 
-// TODO proper gpu memory allocator + buffer lifetimes; static buffers live
-// until renderer destruction for now
 #define MAX_STATIC_BUFFERS          256
 
 typedef struct _queue_families_t queue_families_t;
@@ -70,25 +68,17 @@ struct _vk_renderer_t
     VkPhysicalDeviceMemoryProperties    physical_device_memory_prop;
     VkDevice                            device;
     VkCommandPool                       command_pool;
-    // TODO transfer command buffers
     VkCommandBuffer                     draw_command_buffers[MAX_FRAMES_IN_FLIGHT];
+    VkCommandBuffer                     transfer_command_buffers[MAX_FRAMES_IN_FLIGHT];
 
     queue_families_t                    queue_families;
     swapchain_t                         swapchain;
     frame_sync_t                        frame_sync;
-
-    // static buffers (vertex/index); freed at renderer destruction
-    VkBuffer                            static_buffers[MAX_STATIC_BUFFERS];
-    VkDeviceMemory                      static_buffer_memories[MAX_STATIC_BUFFERS];
-    u32                                 static_buffer_count;
-
 };
 
 
 static vk_renderer_t *g_renderer;
 
-static VkBuffer create_static_buffer(const void *data, u64 size, VkBufferUsageFlags usage);
-static bool copy_buffer_sync(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 static bool create_swapchain(bool vsync);
 static void destroy_swapchain();
 static bool recreate_swapchain();
@@ -104,6 +94,7 @@ static bool create_logical_device();
 // Sync
 static VkSemaphore  sync_image_available_semaphore();
 static VkSemaphore  sync_render_finished_semaphore(u32 image_index);
+static VkSemaphore  sync_transfer_finished_semaphore(u32 image_index);
 static VkFence      sync_inflight_fence();
 static void         sync_step();
 
@@ -140,6 +131,8 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 
     if (!VulkanPass_Init(g_renderer->frame_arena, g_renderer->instance, g_renderer->physical_device))
         goto fail;
+    if (!VulkanBuffer_Init())
+        goto fail;
     if (!VulkanPass_CreateSwapchainPass(g_renderer->global_arena, g_renderer->device,
                                         g_renderer->physical_device_memory_prop, &g_renderer->swapchain))
         goto fail;
@@ -171,11 +164,7 @@ bool VulkanRenderer_Destroy()
 
         destroy_swapchain();
 
-        for (u32 i = 0; i < g_renderer->static_buffer_count; i++)
-        {
-            vkDestroyBuffer(g_renderer->device, g_renderer->static_buffers[i], NULL);
-            vkFreeMemory(g_renderer->device, g_renderer->static_buffer_memories[i], NULL);
-        }
+        VulkanBuffer_Destroy(g_renderer->device);
 
         vkDestroyCommandPool(g_renderer->device, g_renderer->command_pool, NULL);
         vkDestroyDevice(g_renderer->device, NULL);
@@ -212,6 +201,7 @@ void VulkanRenderer_BeginFrame()
 bool VulkanRenderer_EndFrame()
 {
     VkFence inflight_fence = sync_inflight_fence();
+    VkSemaphore signal_semaphore;
 
     if (vkWaitForFences(g_renderer->device, 1, &inflight_fence, VK_TRUE, U64_MAX) != VK_SUCCESS)
     {
@@ -236,56 +226,73 @@ bool VulkanRenderer_EndFrame()
         return false;
     }
 
+    VkCommandBuffer transfer_command_buffer =
+        g_renderer->transfer_command_buffers[g_renderer->frame_sync.inflight_counter];
+
+
+    bool transfer_required = VulkanBuffer_BakeCommandBuffer(g_renderer->device, transfer_command_buffer, image_index);
+    if (transfer_required)
+    {
+        signal_semaphore = sync_transfer_finished_semaphore(image_index);
+
+        VkSubmitInfo transfer_submit_info = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &transfer_command_buffer,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &signal_semaphore,
+        };
+
+        if (vkQueueSubmit(g_renderer->queue_families.transfer_queue, 1, &transfer_submit_info, VK_NULL_HANDLE) !=
+            VK_SUCCESS)
+        {
+            Log(ERROR, "failed to submit transfer command buffer");
+            return false;
+        }
+    }
+
     // TODO bake and submit transfer commands here, signaling the
     // transfer-finished semaphore, and make the draw submit below also wait on
     // it at VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
 
     /* bake draw command buffer; indexed by frame in flight, since that is what
        the fence wait above proves is no longer executing */
-    VkCommandBuffer command_buffer =
+    VkCommandBuffer draw_command_buffer =
         g_renderer->draw_command_buffers[g_renderer->frame_sync.inflight_counter];
 
-    VkCommandBufferBeginInfo begin_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-
-    if (vkResetCommandBuffer(command_buffer, 0) != VK_SUCCESS ||
-        vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to begin draw command buffer");
-        return false;
-    }
-
-    if (!VulkanPass_BakeCommandBuffer(command_buffer, image_index))
+    if (!VulkanPass_BakeCommandBuffer(draw_command_buffer, image_index))
     {
         Log(ERROR, "failed to bake draw command buffer");
         return false;
     }
 
-    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to end draw command buffer");
-        return false;
-    }
-
     vkResetFences(g_renderer->device, 1, &inflight_fence);
 
-    VkSemaphore wait_semaphores[] = { sync_image_available_semaphore() };
-    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    VkSemaphore signal_semaphores[] = { sync_render_finished_semaphore(image_index) };
+    VkSemaphore wait_semaphores[2];
+    VkPipelineStageFlags wait_stages[2];
+    u8 semaphore_count = 0;
+
+    if (transfer_required)
+    {
+        wait_semaphores[semaphore_count] = sync_transfer_finished_semaphore(image_index);
+        wait_stages[semaphore_count++] = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+    }
+    wait_semaphores[semaphore_count] = sync_image_available_semaphore();
+    wait_stages[semaphore_count++] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    signal_semaphore = sync_render_finished_semaphore(image_index);
 
     StaticAssert(ArrayCount(wait_semaphores) == ArrayCount(wait_stages), "one wait stage per wait semaphore");
 
     VkSubmitInfo submit_info = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = ArrayCount(wait_semaphores),
+        .waitSemaphoreCount = semaphore_count,
         .pWaitSemaphores = wait_semaphores,
         .pWaitDstStageMask = wait_stages,
         .commandBufferCount = 1,
-        .pCommandBuffers = &command_buffer,
-        .signalSemaphoreCount = ArrayCount(signal_semaphores),
-        .pSignalSemaphores = signal_semaphores,
+        .pCommandBuffers = &draw_command_buffer,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &signal_semaphore,
     };
 
     if (vkQueueSubmit(g_renderer->queue_families.graphics_queue, 1, &submit_info,
@@ -297,8 +304,8 @@ bool VulkanRenderer_EndFrame()
 
     VkPresentInfoKHR present_info = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .waitSemaphoreCount = ArrayCount(signal_semaphores),
-        .pWaitSemaphores = signal_semaphores,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &signal_semaphore,
         .swapchainCount = 1,
         .pSwapchains = &g_renderer->swapchain.handle,
         .pImageIndices = &image_index,
@@ -338,120 +345,24 @@ pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
 {
-    return create_static_buffer(vertices, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    // TODO remove function
+    VkBuffer buffer = VulkanBuffer_CreateStatic(
+        g_renderer->device, g_renderer->physical_device_memory_prop, g_renderer->command_pool,
+        g_renderer->queue_families.graphics_queue, vertices, size,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+    return buffer;
 }
 
 VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count)
 {
-    return create_static_buffer(indices, index_count * sizeof(u32),
-                                VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-}
+    // TODO remove function
+    VkBuffer buffer = VulkanBuffer_CreateStatic(
+        g_renderer->device, g_renderer->physical_device_memory_prop, g_renderer->command_pool,
+        g_renderer->queue_families.graphics_queue, (const u8 *)indices, index_count * sizeof(u32),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
-static VkBuffer create_static_buffer(const void *data, u64 size, VkBufferUsageFlags usage)
-{
-    if (g_renderer->static_buffer_count >= MAX_STATIC_BUFFERS)
-    {
-        Log(ERROR, "static buffer limit reached");
-        return VK_NULL_HANDLE;
-    }
-
-    VkBuffer static_buffer = VK_NULL_HANDLE;
-
-    VkBuffer staging_buffer;
-    VkDeviceMemory staging_memory;
-    if (!VulkanBuffer_Create(g_renderer->device, g_renderer->physical_device_memory_prop, size,
-                             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                                | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                             &staging_buffer, &staging_memory))
-        return VK_NULL_HANDLE;
-
-    void *mapped;
-    if (vkMapMemory(g_renderer->device, staging_memory, 0, size, 0, &mapped) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to map staging buffer memory");
-        goto exit;
-    }
-    MemoryCopy(mapped, data, size);
-    vkUnmapMemory(g_renderer->device, staging_memory);
-
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-    if (!VulkanBuffer_Create(g_renderer->device, g_renderer->physical_device_memory_prop, size,
-                             VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &buffer, &memory))
-        goto exit;
-
-    if (!copy_buffer_sync(staging_buffer, buffer, size))
-    {
-        vkDestroyBuffer(g_renderer->device, buffer, NULL);
-        vkFreeMemory(g_renderer->device, memory, NULL);
-        goto exit;
-    }
-
-    g_renderer->static_buffers[g_renderer->static_buffer_count] = buffer;
-    g_renderer->static_buffer_memories[g_renderer->static_buffer_count] = memory;
-    g_renderer->static_buffer_count++;
-
-    static_buffer = buffer;
-
-exit:
-    vkDestroyBuffer(g_renderer->device, staging_buffer, NULL);
-    vkFreeMemory(g_renderer->device, staging_memory, NULL);
-
-    return static_buffer;
-}
-
-/* synchronous copy on the graphics queue */
-static bool copy_buffer_sync(VkBuffer src, VkBuffer dst, VkDeviceSize size)
-{
-    VkCommandBufferAllocateInfo allocate_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = g_renderer->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-
-    VkCommandBuffer command_buffer;
-    if (vkAllocateCommandBuffers(g_renderer->device, &allocate_info, &command_buffer) != VK_SUCCESS)
-    {
-        Log(ERROR, "failed to allocate copy command buffer");
-        return false;
-    }
-
-    VkCommandBufferBeginInfo begin_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-
-    VkBufferCopy region = {
-        .size = size,
-    };
-
-    VkSubmitInfo submit_info = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &command_buffer,
-    };
-
-    bool result = false;
-
-    if (vkBeginCommandBuffer(command_buffer, &begin_info) == VK_SUCCESS)
-    {
-        vkCmdCopyBuffer(command_buffer, src, dst, 1, &region);
-
-        result = vkEndCommandBuffer(command_buffer) == VK_SUCCESS
-            && vkQueueSubmit(g_renderer->queue_families.graphics_queue, 1, &submit_info,
-                             VK_NULL_HANDLE) == VK_SUCCESS
-            && vkQueueWaitIdle(g_renderer->queue_families.graphics_queue) == VK_SUCCESS;
-    }
-
-    if (!result)
-        Log(ERROR, "failed to record and submit buffer copy");
-
-    vkFreeCommandBuffers(g_renderer->device, g_renderer->command_pool, 1, &command_buffer);
-
-    return result;
+    return buffer;
 }
 
 static bool create_swapchain(bool vsync)
@@ -652,10 +563,9 @@ static inline VkSemaphore sync_image_available_semaphore()
     return g_renderer->frame_sync.image_available_semaphores[g_renderer->frame_sync.inflight_counter];
 }
 
-AttributeMaybeUnused
-static inline VkSemaphore sync_transfer_finished_semaphore()
+static inline VkSemaphore sync_transfer_finished_semaphore(u32 image_index)
 {
-    return g_renderer->frame_sync.transfer_finished_semaphores[g_renderer->frame_sync.inflight_counter];
+    return g_renderer->frame_sync.transfer_finished_semaphores[image_index];
 }
 
 static inline VkSemaphore sync_render_finished_semaphore(u32 image_index)
@@ -971,6 +881,12 @@ static bool create_logical_device()
                                  g_renderer->draw_command_buffers) != VK_SUCCESS)
     {
         Log(ERROR, "failed to allocate draw command buffers");
+        return false;
+    }
+    if (vkAllocateCommandBuffers(g_renderer->device, &allocate_command_buffers,
+                                 g_renderer->transfer_command_buffers) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to allocate transfer command buffers");
         return false;
     }
 
