@@ -45,6 +45,13 @@ void Engine_HandleKeyUp(SDL_Keycode key)
     Game_HandleKeyUp(key);
 }
 
+void Engine_HandleResize(u32 width, u32 height)
+{
+    Log(DEBUG, "window resized to %ux%u", width, height);
+
+    // TODO recreate the swapchain
+}
+
 void Engine_Tick(void)
 {
     static u64 last_time_ns;

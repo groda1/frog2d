@@ -65,6 +65,10 @@ int main(int argc, char **argv)
             {
                 Engine_HandleKeyUp(event.key.key);
             }
+            else if (event.type == SDL_EVENT_WINDOW_RESIZED)
+            {
+                Engine_HandleResize((u32)event.window.data1, (u32)event.window.data2);
+            }
         }
 
         Engine_Tick();
