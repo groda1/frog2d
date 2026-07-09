@@ -17,6 +17,7 @@ core_sources = []
 vulkan_sources = []
 engine_sources = []
 game_sources = []
+shader_files = []
 sources = []
 
 subdir('src')
@@ -26,20 +27,7 @@ sources += vulkan_sources
 sources += engine_sources
 sources += game_sources
 
-glsllang = find_program('glslangValidator')
-shaders = [
-    '2d_text_ssbo.frag',
-    '2d_text_ssbo.vert',
-]
-shader_targets = []
-foreach s : shaders
-  shader_targets += custom_target(
-    'shader @0@'.format(s),
-    command : [glsllang, '-V', '@INPUT@', '-o',  '@OUTPUT@'],
-    input : 'src/shaders/' + s,
-    output : '@PLAINNAME@.spv',
-  )
-endforeach
+subdir('shaders')
 
 shader_depend = declare_dependency (sources: shader_targets)
 

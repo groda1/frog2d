@@ -1,17 +1,20 @@
 #include <SDL3/SDL_timer.h>
 
 #include "core.h"
+#include "log.h"
 
 #include "engine_main.h"
 #include "game_main.h"
 
 void Engine_HandleKeyDown(SDL_Keycode key)
 {
+    Log(DEBUG, "key down %ju", key);
     Game_HandleKeyDown(key);
 }
 
 void Engine_HandleKeyUp(SDL_Keycode key)
 {
+    Log(DEBUG, "key up %ju", key);
     Game_HandleKeyUp(key);
 }
 
