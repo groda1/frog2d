@@ -72,7 +72,6 @@ f32 Engine_BeginFrame(void)
 
     Draw_BeginFrame();
 
-    //Log(DEBUG, "kek %f", 1/delta_time);
     return delta_time;
 }
 
