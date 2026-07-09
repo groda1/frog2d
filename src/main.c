@@ -4,7 +4,7 @@
 #include <SDL3/SDL_error.h>
 
 #include "log.h"
-#include "engine_main.h"
+#include "game_main.h"
 
 
 #define DEFAULT_WIDTH 1920
@@ -37,7 +37,7 @@ int main(int argc, char **argv)
     }
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
-    if (!Engine_Init(window))
+    if (!Game_Init(window))
         goto exit;
 
     SDL_ShowWindow(window);
@@ -59,22 +59,22 @@ int main(int argc, char **argv)
                     m_running = false;
                 }
 
-                Engine_HandleKeyDown(event.key.key);
+                Game_HandleKeyDown(event.key.key);
             }
             else if (event.type == SDL_EVENT_KEY_UP)
             {
-                Engine_HandleKeyUp(event.key.key);
+                Game_HandleKeyUp(event.key.key);
             }
             else if (event.type == SDL_EVENT_WINDOW_RESIZED)
             {
-                Engine_HandleResize((u32)event.window.data1, (u32)event.window.data2);
+                Game_HandleResize((u32)event.window.data1, (u32)event.window.data2);
             }
         }
 
-        Engine_Tick();
+        Game_Tick();
     }
 
-    Engine_Destroy();
+    Game_Destroy();
 
 exit:
     SDL_DestroyWindow(window);

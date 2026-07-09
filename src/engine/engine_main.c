@@ -5,7 +5,6 @@
 #include "memory_arena.h"
 
 #include "engine_main.h"
-#include "game_main.h"
 #include "mesh.h"
 #include "vulkan_renderer.h"
 
@@ -19,9 +18,6 @@ bool Engine_Init(SDL_Window *window)
         goto fail;
 
     if (!MeshManager_Init(g_engine_arena))
-        goto fail_renderer;
-
-    if (!Game_Init())
         goto fail_renderer;
 
     return true;
@@ -43,18 +39,6 @@ void Engine_Destroy(void)
     g_engine_arena = NULL;
 }
 
-void Engine_HandleKeyDown(SDL_Keycode key)
-{
-    Log(DEBUG, "key down %ju", key);
-    Game_HandleKeyDown(key);
-}
-
-void Engine_HandleKeyUp(SDL_Keycode key)
-{
-    Log(DEBUG, "key up %ju", key);
-    Game_HandleKeyUp(key);
-}
-
 void Engine_HandleResize(u32 width, u32 height)
 {
     Log(DEBUG, "window resized to %ux%u", width, height);
@@ -62,7 +46,7 @@ void Engine_HandleResize(u32 width, u32 height)
     // TODO recreate the swapchain
 }
 
-void Engine_Tick(void)
+f32 Engine_BeginFrame(void)
 {
     static u64 last_time_ns;
 
@@ -75,7 +59,10 @@ void Engine_Tick(void)
 
     VulkanRenderer_BeginFrame();
 
-    Game_Tick(delta_time);
+    return delta_time;
+}
 
+void Engine_EndFrame(void)
+{
     VulkanRenderer_EndFrame();
 }

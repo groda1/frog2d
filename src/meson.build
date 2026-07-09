@@ -31,7 +31,6 @@ core_lib = static_library('core', core_sources,
     include_directories : core_inc,
 )
 
-# sees engine headers since it implements the engine-defined render types
 vulkan_lib = static_library('vulkan', vulkan_sources,
     include_directories : [core_inc, vulkan_inc, engine_inc],
     dependencies : [sdl3_dep, vulkan_dep],

@@ -2,6 +2,7 @@
 #include "core_math.h"
 #include "log.h"
 
+#include "engine_main.h"
 #include "game_main.h"
 #include "mesh.h"
 #include "renderer.h"
@@ -30,8 +31,11 @@ typedef struct
 
 static game_t g_game;
 
-bool Game_Init(void)
+bool Game_Init(SDL_Window *window)
 {
+    if (!Engine_Init(window))
+        return false;
+
     g_game.mesh = *MeshManager_GetMesh(PREDEFINED_MESH_COLORED_TRIANGLE);
 
     window_extent_t extent = Renderer_GetWindowExtent();
@@ -64,10 +68,16 @@ bool Game_Init(void)
     if (g_game.pipeline == PIPELINE_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create hello triangle pipeline");
+        Engine_Destroy();
         return false;
     }
 
     return true;
+}
+
+void Game_Destroy(void)
+{
+    Engine_Destroy();
 }
 
 void Game_HandleKeyDown(SDL_Keycode key)
@@ -80,8 +90,15 @@ void Game_HandleKeyUp(SDL_Keycode key)
     (void)key;
 }
 
-void Game_Tick(f32 delta_time)
+void Game_HandleResize(u32 width, u32 height)
 {
+    Engine_HandleResize(width, height);
+}
+
+void Game_Tick(void)
+{
+    f32 delta_time = Engine_BeginFrame();
+
     /* update */
     quat rotation = HMM_QFromAxisAngle_RH(V3(0.0f, 0.0f, 1.0f),
                                           HMM_AngleDeg(-delta_time * ROT_SPEED_DEG_PER_S));
@@ -101,4 +118,6 @@ void Game_Tick(f32 delta_time)
     /* draw */
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.pipeline, &g_game.push_constant,
                       &g_game.mesh);
+
+    Engine_EndFrame();
 }

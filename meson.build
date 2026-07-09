@@ -29,7 +29,8 @@ shader_depend = declare_dependency (sources: shader_targets)
 executable('frog2d',
     sources,
     win_subsystem: 'windows',
-    include_directories : incdir,
+    # main.c interfaces with the game only
+    include_directories : [core_inc, game_inc],
     link_with : frog2d_libs,
     dependencies: [
         sdl3_dep,
