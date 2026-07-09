@@ -8,13 +8,22 @@
 
 #include "frog2d_core.h"
 
+
+
+static bool frog2d_sdl_init()
+{
+    if (!SDL_Init(SDL_INIT_VIDEO))
+        return false;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
 
-
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!frog2d_sdl_init())
+    {
         printf("Failed to init SDL: %s\n", SDL_GetError());
         return EXIT_FAILURE;
     }
@@ -48,9 +57,10 @@ int main(int argc, char **argv)
         }
     }
 
+
     SDL_DestroyWindow(window);
     SDL_Quit();
 
-    return EXIT_SUCCESS;
 
+    return EXIT_SUCCESS;
 }
