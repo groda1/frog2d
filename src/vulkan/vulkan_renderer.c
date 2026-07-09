@@ -30,8 +30,8 @@ bool VulkanRenderer_Init(arena_t *arena)
 #define MAX_LAYER_COUNT 16
 #define MAX_PROPERTY_COUNT MAX_LAYER_COUNT
 
-[[maybe_unused]]
-static bool query_instance_layer_support(string layer_name)
+AttributeMaybeUnused
+bool query_instance_layer_support(string layer_name)
 {
     VkLayerProperties layers[MAX_LAYER_COUNT];
     u32 count = MAX_LAYER_COUNT;
