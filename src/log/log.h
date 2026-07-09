@@ -2,27 +2,27 @@
 #define LOG_H
 
 #include "core.h"
+#include "core_string.h"
 #include "memory_arena.h"
 
 typedef enum
 {
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR
+    DEBUG = 0,
+    INFO = 1,
+    WARNING = 2,
+    ERROR = 3
 } log_severity_t;
 
 typedef struct
 {
     log_severity_t severity;
-    u8 text[256];
-    
-
+    string text;
 } log_entry_t;
 
 typedef struct
 {
     arena_t *arena;
+    bool stdout;
 
     // Entry store
     log_entry_t *entries;
@@ -36,6 +36,10 @@ typedef struct
 void Log_Init(arena_t *arena);
 
 
-void Log_Entry(log_severity_t, const char *f, ...);
+void Log(log_severity_t severity, const char *log, ...);
+
+u64 Log_Count();
+log_entry_t *Log_Get(u64 index);
+
 
 #endif
