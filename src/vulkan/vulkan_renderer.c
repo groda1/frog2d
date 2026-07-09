@@ -18,6 +18,8 @@ struct _vk_renderer_t
 
     /* data */
     VkInstance instance;
+    VkSurfaceKHR surface;
+    VkPhysicalDevice physical_device;
 };
 
 static vk_renderer_t *renderer;
@@ -25,6 +27,8 @@ static vk_renderer_t *renderer;
 static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 static bool create_instance();
+static bool create_surface(SDL_Window *window);
+bool pick_physical_device();
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, 
@@ -32,23 +36,38 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
     void *pUserData);
 
-bool VulkanRenderer_Init(arena_t *arena)
+bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
 {
+    u64 pos = MemoryArena_Pos(arena);
     renderer = arena_push(arena, vk_renderer_t);
     renderer->arena = arena;
 
     log_instance_layer_properties();
 
     if (!create_instance())
-        return false;
-        
+        goto _fail;
+    if (!create_surface(window))
+        goto _fail;
+    if (!pick_physical_device())
+        goto _fail;
+
+    Log(INFO, "Vulkan renderer initialized");
     return true;
+
+_fail:
+    MemoryArena_PopTo(arena, pos);
+    renderer = NULL;
+    return false;    
 }
 
 bool VulkanRenderer_Destroy()
 {
     if (renderer)
+    {
+        vkDestroySurfaceKHR(renderer->instance, renderer->surface, NULL);
         vkDestroyInstance(renderer->instance, NULL);
+    }
+        
 
     return true;
 }
@@ -112,7 +131,56 @@ static bool create_instance()
         Log(ERROR, "failed to create vulkan instance");
         return false;
     }
+
+    Log(INFO, "Created vulkan instance");
     return true;
+}
+
+static bool create_surface(SDL_Window *window)
+{
+    if (!SDL_Vulkan_CreateSurface(window, renderer->instance, NULL, &renderer->surface))
+    {
+        Log(ERROR, "Failed to create surface: %s", SDL_GetError());
+        return false;
+    }
+
+    Log(INFO, "Created surface");
+    return true;
+}
+
+bool pick_physical_device()
+{
+    VkPhysicalDevice physical_devices[8];
+    u32 device_count = 8;
+
+    if (vkEnumeratePhysicalDevices(renderer->instance, &device_count, physical_devices) != VK_SUCCESS)
+    {
+            Log(ERROR, "Failed to enumerate physical devices");
+            return false;
+    }
+    if (device_count == 0)
+    {
+            Log(ERROR, "No available physical device");
+            return false;
+    }
+
+    for (u32 i = 0; i < device_count; i++)
+    {
+        /* TODO:
+        Check for queue family support
+        Check for extensions:
+            - DEVICE_EXTENSIONS
+        Check for swap chain support
+        Check for anisotropic filtering
+         */
+        if (true)
+        {
+            renderer->physical_device = physical_devices[i];
+            Log(DEBUG, "picked physical device: %d", renderer->physical_device);
+            return true;
+        }
+    }
+    return false;
 }
 
 #define MAX_LAYER_COUNT 16
