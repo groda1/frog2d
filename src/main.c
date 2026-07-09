@@ -19,6 +19,8 @@ int main(int argc, char **argv)
 
     Log_Init();
 
+    SDL_SetHint(SDL_HINT_VIDEO_WAYLAND_SCALE_TO_DISPLAY, "1");
+
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         Log(ERROR, "Failed to init SDL: %s\n", SDL_GetError());
