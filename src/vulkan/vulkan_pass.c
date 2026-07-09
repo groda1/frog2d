@@ -112,7 +112,7 @@ bool VulkanPass_CreateSwapchainPass(
     };
 
     swapchain_target_t *target = &pass.target.swapchain_target;
-    
+
 
     // TODO copy pipelines from existing swapchain pass if it exists
 
@@ -229,6 +229,8 @@ static bool create_swapchain_render_pass(VkDevice device, VkFormat color_format,
     return true;
 }
 
+static bool bake_command_buffer()
+
 static void destroy_render_pass(VkDevice device, render_pass_t *pass)
 {
     Assert(pass->active);
@@ -267,4 +269,3 @@ static void destroy_swapchain_target(VkDevice device, swapchain_target_t *target
 
     vkDestroySwapchainKHR(device, target->swapchain_handle, NULL);
 }
-

@@ -26,4 +26,9 @@ struct _swapchain_t
 bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window);
 bool VulkanRenderer_Destroy();
 
+void VulkanRenderer_BeginFrame();
+void VulkanRenderer_AddDrawCommand();
+void VulkanRenderer_EndFrame();
+
+
 #endif

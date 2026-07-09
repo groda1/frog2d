@@ -38,6 +38,17 @@ struct _queue_families_t
     VkQueue present_queue;
 };
 
+typedef struct _frame_sync_t frame_sync_t;
+struct _frame_sync_t
+{
+    VkSemaphore image_available_semaphores[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore transfer_finished_semaphores[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore render_finished_semaphores[MAX_FRAMES_IN_FLIGHT];
+    VkFence     inflight_fences[MAX_FRAMES_IN_FLIGHT];
+
+    u32 inflight_counter;
+};
+
 struct _vk_renderer_t
 {
     arena_t *arena;
@@ -54,12 +65,15 @@ struct _vk_renderer_t
 
     queue_families_t                    queue_families;
     swapchain_t                         swapchain;
+    frame_sync_t                        frame_sync;
 };
 
 
 static vk_renderer_t *g_renderer;
 
 static bool create_swapchain(bool vsync);
+static bool create_sync_objects();
+static void destroy_sync_objects();
 static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 static bool create_instance();
@@ -94,6 +108,8 @@ bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
         goto fail;
     if (!create_swapchain(false))
         goto fail;
+    if (!create_sync_objects())
+        goto fail;
 
     if (!VulkanPass_Init(g_renderer->instance, g_renderer->physical_device))
         goto fail;
@@ -114,6 +130,8 @@ bool VulkanRenderer_Destroy()
 {
     if (g_renderer)
     {
+        destroy_sync_objects();
+
         VulkanPass_Destroy(g_renderer->device);
 
         vkDestroySwapchainKHR(g_renderer->device, g_renderer->swapchain.handle, NULL);
@@ -243,6 +261,81 @@ static bool create_swapchain(bool vsync)
     g_renderer->swapchain.format = format.format;
 
     return true;
+}
+
+static bool create_sync_objects()
+{
+    frame_sync_t *sync = &g_renderer->frame_sync;
+
+    VkSemaphoreCreateInfo semaphore_create = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+    VkFenceCreateInfo fence_create = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+    };
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        if (vkCreateSemaphore(g_renderer->device, &semaphore_create, NULL,
+                              &sync->image_available_semaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(g_renderer->device, &semaphore_create, NULL,
+                              &sync->transfer_finished_semaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(g_renderer->device, &semaphore_create, NULL,
+                              &sync->render_finished_semaphores[i]) != VK_SUCCESS ||
+            vkCreateFence(g_renderer->device, &fence_create, NULL,
+                          &sync->inflight_fences[i]) != VK_SUCCESS)
+        {
+            Log(ERROR, "failed to create frame sync objects");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void destroy_sync_objects()
+{
+    frame_sync_t *sync = &g_renderer->frame_sync;
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        vkDestroySemaphore(g_renderer->device, sync->image_available_semaphores[i], NULL);
+        vkDestroySemaphore(g_renderer->device, sync->transfer_finished_semaphores[i], NULL);
+        vkDestroySemaphore(g_renderer->device, sync->render_finished_semaphores[i], NULL);
+        vkDestroyFence(g_renderer->device, sync->inflight_fences[i], NULL);
+    }
+}
+
+AttributeMaybeUnused
+static inline VkSemaphore sync_image_available_semaphore()
+{
+    return g_renderer->frame_sync.image_available_semaphores[g_renderer->frame_sync.inflight_counter];
+}
+
+AttributeMaybeUnused
+static inline VkSemaphore sync_transfer_finished_semaphore()
+{
+    return g_renderer->frame_sync.transfer_finished_semaphores[g_renderer->frame_sync.inflight_counter];
+}
+
+AttributeMaybeUnused
+static inline VkSemaphore sync_render_finished_semaphore()
+{
+    return g_renderer->frame_sync.render_finished_semaphores[g_renderer->frame_sync.inflight_counter];
+}
+
+AttributeMaybeUnused
+static inline VkFence sync_inflight_fence()
+{
+    return g_renderer->frame_sync.inflight_fences[g_renderer->frame_sync.inflight_counter];
+}
+
+AttributeMaybeUnused
+static void sync_step()
+{
+    g_renderer->frame_sync.inflight_counter =
+        (g_renderer->frame_sync.inflight_counter + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 static bool create_instance()
