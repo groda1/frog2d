@@ -46,7 +46,7 @@ typedef struct
 typedef struct
 {
     vec2 position;
-    s32  character;
+    i32  character;
     f32  size;
     vec4 color;
 } text_instance_t;
@@ -193,7 +193,7 @@ bool Game_Init(SDL_Window *window)
         return false;
     }
 
-    g_game.font_texture = Renderer_LoadTexture("resources/textures/font.png", sampler);
+    g_game.font_texture = Renderer_LoadTexture("resources/textures/font2.png", sampler);
     if (g_game.font_texture == TEXTURE_HANDLE_INVALID)
     {
         Log(ERROR, "failed to load font texture");
@@ -245,7 +245,7 @@ bool Game_Init(SDL_Window *window)
 
     /* instanced text */
     g_game.text_instances =
-        Renderer_CreateStorageBuffer(32 * sizeof(text_instance_t));
+        Renderer_CreateStorageBuffer(256 * sizeof(text_instance_t));
     if (g_game.text_instances == BUFFER_OBJECT_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create text instance storage buffer");
@@ -290,14 +290,14 @@ bool Game_Init(SDL_Window *window)
         return false;
     }
 
-    const char text[] = "VULKRAP";
+    const char text[] = "foobar FOOBAR <> #!";
     text_instance_t instances[ArrayCount(text) - 1];
     for (u32 i = 0; i < ArrayCount(instances); i++)
     {
         instances[i] = (text_instance_t){
-            .position = V2(1200.0f + (f32)i * 32.0f, 900.0f),
+            .position = V2(1200.0f + (f32)i * 16.0f, 900.0f),
             .character = text[i],
-            .size = 32.0f,
+            .size = 16.0f,
             .color = V4(1.0f, 1.0f, 1.0f, 1.0f),
         };
     }

@@ -44,7 +44,7 @@ void main() {
     int offset_x = character % WIDTH;
     fragTexCoord = vec2(inTexCoord.x * CHAR_WIDTH + offset_x * CHAR_WIDTH, inTexCoord.y * CHAR_HEIGHT + offset_y * CHAR_HEIGHT);
 
-    vec4 position = vec4((inPosition.x * instance.size) + instance.position.x, (inPosition.y * instance.size) + instance.position.y, 0.0, 1.0);
+    vec4 position = vec4((inPosition.x * instance.size) + instance.position.x, (inPosition.y * (instance.size * 2)) + instance.position.y, 0.0, 1.0);
 
     gl_Position = vp.proj * vp.view * position;
 }

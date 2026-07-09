@@ -3,6 +3,6 @@
 fs = import('fs')
 
 resource_targets = []
-foreach t : ['test.png', 'font.png']
+foreach t : ['test.png', 'font.png', 'font2.png']
     resource_targets += fs.copyfile(t)
 endforeach
