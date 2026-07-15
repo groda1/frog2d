@@ -5,11 +5,14 @@
 
 #include "engine_main.h"
 #include "mesh.h"
+#include "render_types.h"
 #include "renderer.h"
 #include "draw.h"
 #include "vulkan_renderer.h"
 
 static arena_t *g_engine_arena;
+
+static void draw_version_label();
 
 bool Engine_Init(platform_window_t *window)
 {
@@ -67,9 +70,11 @@ f32 Engine_BeginFrame(void)
     f32 delta_time = (f32)(now_ns - last_time_ns) / (f32)NS_PER_SECOND;
     last_time_ns = now_ns;
 
-    VulkanRenderer_BeginFrame();
-
+    VulkanRenderer_BeginFrame(); // Needs to be first
     Draw_BeginFrame();
+
+
+    draw_version_label();
 
     return delta_time;
 }
@@ -78,6 +83,13 @@ void Engine_EndFrame(void)
 {
     Draw_EndFrame();
 
-    // Needs to be last
-    VulkanRenderer_EndFrame();
+    VulkanRenderer_EndFrame(); // Needs to be last
+}
+
+static void draw_version_label()
+{
+    window_extent_t extent = Renderer_GetWindowExtent();
+    Draw_SetTextSize(16);
+    Draw_SetTextColor(V4(1.0, 1.0, 1.0, 1.0));
+    Draw_Text(extent.width - 164, extent.height - 34, string_lit("DCFS 0.0.1"));
 }
