@@ -1,9 +1,9 @@
-#include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
 #include "core.h"
 #include "log.h"
+#include "platform_vulkan.h"
 
 #include "vulkan_context.h"
 #include "vulkan_renderer.h"
@@ -91,7 +91,7 @@ static void destroy_sync_objects();
 static bool query_instance_layer_support(string layer_name);
 static void log_instance_layer_properties();
 static bool create_instance();
-static bool create_surface(SDL_Window *window);
+static bool create_surface(platform_window_t *window);
 static bool setup_physical_device();
 static bool create_logical_device();
 
@@ -109,7 +109,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     void *pUserData);
 
 
-bool VulkanRenderer_Init(arena_t *arena, SDL_Window *window)
+bool VulkanRenderer_Init(arena_t *arena, platform_window_t *window)
 {
     u64 pos = MemoryArena_Pos(arena);
     s_renderer = arena_push(arena, vk_renderer_t);
@@ -616,7 +616,7 @@ static bool create_instance()
 {
     u32 extension_count;
     const char *extensions[32];
-    char const * const * required_extensions = SDL_Vulkan_GetInstanceExtensions(&extension_count);
+    char const * const * required_extensions = Platform_Vulkan_GetInstanceExtensions(&extension_count);
 
     for (u32 i = 0; i < extension_count; i++)
         extensions[i] = required_extensions[i];
@@ -676,21 +676,18 @@ static bool create_instance()
     return true;
 }
 
-static bool create_surface(SDL_Window *window)
+static bool create_surface(platform_window_t *window)
 {
-    if (!SDL_Vulkan_CreateSurface(window, s_renderer->instance, NULL, &s_renderer->surface))
-    {
-        Log(ERROR, "Failed to create surface: %s", SDL_GetError());
+    if (!Platform_Vulkan_CreateSurface(window, s_renderer->instance, &s_renderer->surface))
         return false;
-    }
 
-    int width, height;
-    if (!(SDL_GetWindowSize(window, &width, &height)))
+    u32 width, height;
+    if (!Platform_GetWindowSize(window, &width, &height))
     {
         Log(ERROR, "failed to get window size");
         return false;
     }
-    s_renderer->window_extent = (VkExtent2D){(u32)width, (u32)height};
+    s_renderer->window_extent = (VkExtent2D){width, height};
 
     Log(INFO, "Created surface");
     return true;

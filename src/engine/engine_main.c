@@ -1,8 +1,7 @@
-#include <SDL3/SDL_timer.h>
-
 #include "core.h"
 #include "log.h"
 #include "memory_arena.h"
+#include "os_time.h"
 
 #include "engine_main.h"
 #include "mesh.h"
@@ -12,7 +11,7 @@
 
 static arena_t *g_engine_arena;
 
-bool Engine_Init(SDL_Window *window)
+bool Engine_Init(platform_window_t *window)
 {
     g_engine_arena = MemoryArena_Create("engine-arena");
 
@@ -61,11 +60,11 @@ f32 Engine_BeginFrame(void)
 {
     static u64 last_time_ns;
 
-    u64 now_ns = SDL_GetTicksNS();
+    u64 now_ns = OS_TimeNowNs();
     if (last_time_ns == 0)
         last_time_ns = now_ns;
 
-    f32 delta_time = (f32)(now_ns - last_time_ns) / (f32)SDL_NS_PER_SECOND;
+    f32 delta_time = (f32)(now_ns - last_time_ns) / (f32)NS_PER_SECOND;
     last_time_ns = now_ns;
 
     VulkanRenderer_BeginFrame();

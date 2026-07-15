@@ -8,6 +8,7 @@
 #include "engine_types.h"
 #include "game_main.h"
 #include "mesh.h"
+#include "render_types.h"
 #include "renderer.h"
 #include "draw.h"
 
@@ -63,7 +64,7 @@ typedef struct
 
 static game_t g_game;
 
-bool Game_Init(SDL_Window *window)
+bool Game_Init(platform_window_t *window)
 {
     if (!Engine_Init(window))
         return false;
@@ -227,12 +228,12 @@ void Game_Destroy(void)
     Engine_Destroy();
 }
 
-void Game_HandleKeyDown(SDL_Keycode key)
+void Game_HandleKeyDown(key_code_t key)
 {
     (void)key;
 }
 
-void Game_HandleKeyUp(SDL_Keycode key)
+void Game_HandleKeyUp(key_code_t key)
 {
     (void)key;
 }
@@ -324,9 +325,8 @@ void Game_Tick(void)
     Draw_SetTextSize(16);
 
 
-    Draw_Quad(8, 1080 - 40, 200, 32, V4(0.2, 0.8, 0.2, 1.0));
-    Draw_Quad(2, 2, 200, 200, V4(1.0, 0.8, 0.2, 1.0));
-    Draw_Text(8, 1080 - 32 - 8, string_lit("WTF!!!!"));
+    Draw_Quad(8, extent.height - 40, 200, 32, V4(0.2, 0.8, 0.2, 1.0));
+    Draw_Text(8, extent.height - 32 - 8, string_lit("WTF!!!!"));
 
     Engine_EndFrame();
 }

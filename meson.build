@@ -14,6 +14,7 @@ endif
 
 
 core_sources = []
+platform_sources = []
 vulkan_sources = []
 engine_sources = []
 game_sources = []
@@ -33,10 +34,9 @@ executable('dcfs',
     sources,
     win_subsystem: 'windows',
     # main.c interfaces with the game only
-    include_directories : [core_inc, game_inc],
+    include_directories : [core_inc, platform_inc, game_inc],
     link_with : dcfs_libs,
-    dependencies: [
-        sdl3_dep,
+    dependencies: platform_deps + [
         vulkan_dep,
         m_dep,
         shader_depend,

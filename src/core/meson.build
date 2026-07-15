@@ -9,7 +9,17 @@ core_sources += files(
 )
 
 if host_machine.system() == 'linux'
-    core_sources += files('os_memory_linux.c')
+    core_sources += files(
+        'os_memory_linux.c',
+        'os_path_linux.c',
+        'os_time_linux.c',
+    )
+elif host_machine.system() == 'windows'
+    core_sources += files(
+        'os_memory_win32.c',
+        'os_path_win32.c',
+        'os_time_win32.c',
+    )
 else
-    error('No os_memory backend configured for platform: ' + host_machine.system())
+    error('No os backend configured for platform: ' + host_machine.system())
 endif

@@ -17,8 +17,6 @@ void OS_MemoryRelease(void *ptr, u64 size)
 
 bool OS_MemoryCommit(void *ptr, u64 size)
 {
-    if (mprotect(ptr, size, PROT_READ | PROT_WRITE) == 0)
-        return false;
-    return true;
+    return mprotect(ptr, size, PROT_READ | PROT_WRITE) == 0;
 }
 
