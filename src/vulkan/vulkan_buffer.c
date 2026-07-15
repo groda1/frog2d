@@ -10,18 +10,20 @@
 #include "vulkan_memory.h"
 #include "vulkan_types.h"
 
-#define MAX_ASSIGNMENTS     8
 #define MAX_BUFFER_OBJECT   1024
 #define MAX_STATIC_BUFFERS  256
+#define MAX_RETIRED_BUFFERS 64
 
 typedef struct _buffer_object_t buffer_object_t;
 struct _buffer_object_t
 {
     buffer_object_type_t    type;
-    u64                     capacity; // capacity for both the cpu buffer and the memory on the device
+    u64                     capacity; /* capacity for both the cpu buffer and the memory on the device */
 
+    arena_t                 *arena;
     u8                      *cpu_buf;
     u64                     cpu_buf_len;
+
 
     VkBuffer                staging_buffers[MAX_FRAMES_IN_FLIGHT];
     VkDeviceMemory          staging_mem[MAX_FRAMES_IN_FLIGHT];
@@ -32,12 +34,21 @@ struct _buffer_object_t
     /* BO_STORAGE only; shaders reach the buffer through this address */
     VkDeviceAddress         device_addresses[MAX_FRAMES_IN_FLIGHT];
 
-    // TODO: is this only needed for growable BOs?
-    //pipeline_handle_t       assigned_pipelines[MAX_ASSIGNMENTS];
-    //u32                     assigned_pipelines_count;
+    /* size of each frame in flight's buffers; lags behind capacity after a
+       grow until the frame is baked and the buffers are rebuilt */
+    u64                     buffer_capacities[MAX_FRAMES_IN_FLIGHT];
 
     bool dirty[MAX_FRAMES_IN_FLIGHT];
-    // TODO growable BOs?
+};
+
+/* buffers whose last GPU use may still be in flight; destroyed once
+   MAX_FRAMES_IN_FLIGHT later frames have waited their fences */
+typedef struct _retired_buffer_t retired_buffer_t;
+struct _retired_buffer_t
+{
+    VkBuffer        buffer;
+    VkDeviceMemory  memory;
+    u64             frame;
 };
 
 static bool copy_buffer_sync(VkCommandPool command_pool, VkQueue submit_queue, VkBuffer src,
@@ -46,6 +57,10 @@ static buffer_object_t *get_buffer_object(buffer_object_handle_t handle);
 static bool create_vulkan_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                  VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,
                                  VkDeviceMemory *memory_out);
+static bool create_object_buffers(buffer_object_t *object, u32 frame_index);
+static bool grow_object(buffer_object_t *object, u64 required);
+static void retire_buffer(VkBuffer buffer, VkDeviceMemory memory);
+static void flush_retired_buffers(bool destroy_all);
 
 typedef struct _buffers_t buffers_t;
 struct _buffers_t
@@ -56,6 +71,10 @@ struct _buffers_t
     VkBuffer        static_buffers[MAX_STATIC_BUFFERS];
     VkDeviceMemory  static_buffer_memories[MAX_STATIC_BUFFERS];
     u32             static_buffer_count;
+
+    retired_buffer_t retired[MAX_RETIRED_BUFFERS];
+    u32             retired_count;
+    u64             frame_counter; /* one tick per baked frame */
 };
 
 static buffers_t s_buffers = {};
@@ -76,6 +95,9 @@ bool VulkanBuffer_Init()
 
 void VulkanBuffer_Destroy()
 {
+    /* only called after VulkanRenderer_WaitIdle */
+    flush_retired_buffers(true);
+
     // Free static buffers
     for (u32 i = 0; i < s_buffers.static_buffer_count; i++)
     {
@@ -184,37 +206,16 @@ buffer_object_handle_t VulkanBuffer_CreateObject(arena_t *arena, u64 capacity,
         return BUFFER_OBJECT_HANDLE_INVALID;
     }
 
-    VkBufferUsageFlags usage = type == BO_STORAGE
-        ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-        : VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-
     buffer_object_t *object = arena_push(arena, buffer_object_t);
     object->type = type;
     object->capacity = capacity;
     object->cpu_buf = arena_push_array_no_zero(arena, u8, capacity);
+    object->arena = arena;
 
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
-        if (!create_vulkan_buffer(capacity, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                                      | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  &object->staging_buffers[i], &object->staging_mem[i]))
+        if (!create_object_buffers(object, i))
             return BUFFER_OBJECT_HANDLE_INVALID;
-
-        if (!create_vulkan_buffer(capacity,
-                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                  &object->device_buffers[i], &object->device_mem[i]))
-            return BUFFER_OBJECT_HANDLE_INVALID;
-
-        if (type == BO_STORAGE)
-        {
-            VkBufferDeviceAddressInfo address_info = {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-                .buffer = object->device_buffers[i],
-            };
-            object->device_addresses[i] = vkGetBufferDeviceAddress(g_device, &address_info);
-        }
     }
 
     s_buffers.buffer_objects[s_buffers.buffer_object_count++] = object;
@@ -231,7 +232,7 @@ bool VulkanBuffer_SetObjectData(buffer_object_handle_t handle, const void *data,
     }
 
     buffer_object_t *object = get_buffer_object(handle);
-    if (size > object->capacity)
+    if (size > object->capacity && !grow_object(object, size))
     {
         Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", size, object->capacity);
         return false;
@@ -273,7 +274,8 @@ bool VulkanBuffer_PushObjectData(buffer_object_handle_t handle, const void *data
     }
 
     buffer_object_t *object = get_buffer_object(handle);
-    if (object->cpu_buf_len + size > object->capacity)
+    if (object->cpu_buf_len + size > object->capacity &&
+        !grow_object(object, object->cpu_buf_len + size))
     {
         Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", object->cpu_buf_len + size, object->capacity);
         return false;
@@ -311,6 +313,9 @@ bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_in
 {
     bool transfer_required = false;
 
+    s_buffers.frame_counter++;
+    flush_retired_buffers(false);
+
     VkCommandBufferBeginInfo begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
@@ -334,6 +339,22 @@ bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_in
         /* zero-size copies are not allowed */
         if (bo->cpu_buf_len == 0)
             continue;
+
+        /* the object grew since this frame's buffers were created; rebuild
+           them (in-flight frames keep the retired ones) */
+        if (Unlikely(bo->buffer_capacities[image_index] < bo->capacity))
+        {
+            retire_buffer(bo->staging_buffers[image_index], bo->staging_mem[image_index]);
+            retire_buffer(bo->device_buffers[image_index], bo->device_mem[image_index]);
+
+            if (!create_object_buffers(bo, image_index))
+            {
+                Log(ERROR, "failed to grow buffer object buffers");
+                return false;
+            }
+
+            Log(DEBUG, "buffer object %u grown to %ju bytes", i + 1, bo->capacity);
+        }
 
         VkBuffer staging_buffer = bo->staging_buffers[image_index];
         VkDeviceMemory staging_memory = bo->staging_mem[image_index];
@@ -367,6 +388,107 @@ bool VulkanBuffer_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_in
     return transfer_required;
 }
 
+
+/* creates one frame in flight's staging + device buffers at the object's
+   current capacity */
+static bool create_object_buffers(buffer_object_t *object, u32 frame_index)
+{
+    u64 capacity = object->capacity;
+    VkBufferUsageFlags usage = object->type == BO_STORAGE
+        ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+        : VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+    if (!create_vulkan_buffer(capacity, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                  | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                              &object->staging_buffers[frame_index],
+                              &object->staging_mem[frame_index]))
+        return false;
+
+    if (!create_vulkan_buffer(capacity,
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
+                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                              &object->device_buffers[frame_index],
+                              &object->device_mem[frame_index]))
+        return false;
+
+    if (object->type == BO_STORAGE)
+    {
+        VkBufferDeviceAddressInfo address_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = object->device_buffers[frame_index],
+        };
+        object->device_addresses[frame_index] = vkGetBufferDeviceAddress(g_device, &address_info);
+    }
+
+    object->buffer_capacities[frame_index] = capacity;
+
+    return true;
+}
+
+/* doubles the cpu buffer until required fits; the device buffers are
+   rebuilt lazily at bake time. BO_STORAGE only: uniform buffers are
+   referenced by descriptor sets written at pipeline creation, so their
+   buffers cannot be swapped out */
+static bool grow_object(buffer_object_t *object, u64 required)
+{
+    if (object->type != BO_STORAGE)
+        return false;
+
+    u64 capacity = object->capacity;
+    while (capacity < required)
+        capacity *= 2;
+
+    /* the old cpu_buf is abandoned in the arena; the waste is bounded by
+       the doubling */
+    u8 *cpu_buf = arena_push_array_no_zero(object->arena, u8, capacity);
+    if (!cpu_buf)
+        return false;
+
+    MemoryCopy(cpu_buf, object->cpu_buf, object->cpu_buf_len);
+    object->cpu_buf = cpu_buf;
+    object->capacity = capacity;
+
+    return true;
+}
+
+static void retire_buffer(VkBuffer buffer, VkDeviceMemory memory)
+{
+    if (s_buffers.retired_count >= MAX_RETIRED_BUFFERS)
+    {
+        Log(WARNING, "retired buffer list full; forcing device idle");
+        vkDeviceWaitIdle(g_device);
+        flush_retired_buffers(true);
+    }
+
+    retired_buffer_t *slot = &s_buffers.retired[s_buffers.retired_count++];
+    slot->buffer = buffer;
+    slot->memory = memory;
+    slot->frame = s_buffers.frame_counter;
+}
+
+static void flush_retired_buffers(bool destroy_all)
+{
+    u32 kept = 0;
+
+    for (u32 i = 0; i < s_buffers.retired_count; i++)
+    {
+        retired_buffer_t *retired = &s_buffers.retired[i];
+
+        if (destroy_all ||
+            s_buffers.frame_counter - retired->frame >= MAX_FRAMES_IN_FLIGHT)
+        {
+            vkDestroyBuffer(g_device, retired->buffer, NULL);
+            vkFreeMemory(g_device, retired->memory, NULL);
+        }
+        else
+        {
+            s_buffers.retired[kept++] = *retired;
+        }
+    }
+
+    s_buffers.retired_count = kept;
+}
 
 static bool create_vulkan_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                  VkMemoryPropertyFlags memory_flags, VkBuffer *buffer_out,

@@ -21,9 +21,10 @@ pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
 
 buffer_object_handle_t Renderer_CreateUniformBuffer(u64 size, uniform_stage_t stage);
 
-/* fixed-capacity storage buffer; like textures, needs no pipeline
-   configuration: shaders reach it through its device address
-   (GL_EXT_buffer_reference), passed in the push constant per draw */
+/* storage buffer; like textures, needs no pipeline configuration: shaders
+   reach it through its device address (GL_EXT_buffer_reference), passed in
+   the push constant per draw. capacity is the initial size; Set/Push grow
+   the buffer on demand */
 buffer_object_handle_t Renderer_CreateStorageBuffer(u64 capacity);
 
 /* the data is copied into the buffer object's cpu shadow and uploaded to the

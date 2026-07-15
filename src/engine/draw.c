@@ -9,8 +9,6 @@
 
 #include "draw.h"
 
-#define INITIAL_CAP 8192
-
 /* layout of 2d_color_ssbo.vert's instance_data */
 typedef struct
 {
@@ -76,7 +74,7 @@ bool Draw_Init()
     }
 
     // Colored meshes pipeline
-    s_draw.colored_sbo_capacity = INITIAL_CAP;
+    s_draw.colored_sbo_capacity = 2048;
     s_draw.colored_sbo = Renderer_CreateStorageBuffer( s_draw.colored_sbo_capacity * sizeof(color_instance_t));
     if (s_draw.colored_sbo == BUFFER_OBJECT_HANDLE_INVALID)
     {
@@ -118,8 +116,8 @@ bool Draw_Init()
     }
 
     // Text pipeline
-    s_draw.text_sbo_capacity = INITIAL_CAP;
-    s_draw.text_sbo = Renderer_CreateStorageBuffer( s_draw.text_sbo_capacity * sizeof(character_instance_t));
+    s_draw.text_sbo_capacity = 8192;
+    s_draw.text_sbo = Renderer_CreateStorageBuffer(s_draw.text_sbo_capacity * sizeof(character_instance_t));
     if (s_draw.text_sbo == BUFFER_OBJECT_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create text renderer SBO");
@@ -204,13 +202,6 @@ void Draw_HandleResize(u32 width, u32 height)
 
 bool Draw_Quad(u32 x, u32 y, u32 width, u32 height, vec4 color)
 {
-    if (s_draw.colored_sbo_len >= s_draw.colored_sbo_capacity)
-    {
-        // TODO grow SBO
-        Log(WARNING, "text renderer capacity exceeded");
-        return false;
-    }
-
     color_instance_t instance = {
         .position = V2((f32)x + ((f32)width/2.0), (f32)y + ((f32)height/ 2.0)),
         .size = V2((f32)width, (f32)height),
@@ -234,12 +225,6 @@ void Draw_SetTextColor(vec4 color)
 
 bool Draw_Text(u32 x, u32 y, string text)
 {
-    if ((text.len + s_draw.text_sbo_len) > s_draw.text_sbo_capacity)
-    {
-        // TODO grow SBO
-        Log(WARNING, "text renderer capacity exceeded");
-        return false;
-    }
     for (u32 i = 0; i < text.len; i++)
     {
         character_instance_t character = {
