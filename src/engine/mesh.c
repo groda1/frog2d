@@ -8,7 +8,7 @@
 #include "vulkan_renderer.h"
 
 #define MESH_START_HANDLE 1000
-#define MESH_MAP_BUCKET_COUNT 64
+#define MESH_MAP_BUCKET_COUNT 512
 
 typedef struct
 {

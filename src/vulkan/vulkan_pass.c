@@ -13,26 +13,32 @@
 
 
 #define MAX_PIPELINES_PER_PASS 64 // TODO: this need be dynamic
-#define SWAPCHAIN_PASS_MAX_DRAW_COMMANDS 1024
+#define MAX_DRAW_COMMANDS_PER_PASS 1024
+#define MAX_IMAGE_PASSES 16
 
 
 typedef struct _swapchain_target_t swapchain_target_t;
 struct _swapchain_target_t
 {
-    VkImage         depth_image;
-    VkImageView     depth_image_view;
-    VkDeviceMemory  depth_image_memory;
-
     /* borrowed from the swapchain; destroyed with it, not with the target */
     VkImage         color_images[MAX_FRAMES_IN_FLIGHT];
     VkImageView     color_image_views[MAX_FRAMES_IN_FLIGHT];
+
+    VkImage         depth_image;
+    VkImageView     depth_image_view;
+    VkDeviceMemory  depth_image_memory;
 };
 
 typedef struct _image_target_t image_target_t;
 struct _image_target_t
 {
-    u64 todo;
-    // TODO;
+    /* borrowed from the texture registry; destroyed with the texture */
+    VkImage         color_image;
+    VkImageView     color_image_view;
+
+    VkImage         depth_image;
+    VkImageView     depth_image_view;
+    VkDeviceMemory  depth_image_memory;
 };
 
 typedef enum {
@@ -57,6 +63,7 @@ typedef struct _render_pass render_pass_t;
 struct _render_pass
 {
     renderpass_handle_t handle;
+    u32             order;
     VkExtent2D      extent;
     render_target_t target;
     VkFormat        color_format;
@@ -77,6 +84,12 @@ struct _vk_passes
     render_pass_t       swapchain_pass;
     bool                swapchain_set;
     VkFormat            depth_format;
+
+    /* image pass handles are 1-based indices into image_passes;
+       image_pass_order holds the indices sorted by bake order */
+    render_pass_t       image_passes[MAX_IMAGE_PASSES];
+    u32                 image_pass_order[MAX_IMAGE_PASSES];
+    u32                 image_pass_count;
 
     arena_t             *frame_arena;
 };
@@ -110,6 +123,13 @@ bool VulkanPass_Destroy()
 
     s_passes.swapchain_set = false;
 
+    for (u32 i = 0; i < s_passes.image_pass_count; i++)
+    {
+        if (s_passes.image_passes[i].active)
+            destroy_render_pass(&s_passes.image_passes[i]);
+    }
+    s_passes.image_pass_count = 0;
+
     return true;
 }
 
@@ -124,8 +144,8 @@ bool VulkanPass_CreateSwapchainPass(arena_t *arena, swapchain_t *swapchain)
     if (!create_swapchain_target(swapchain, &pass->target.swapchain_target))
         return false;
 
-    pass->draw_commands = arena_push_array(arena, draw_command_t, SWAPCHAIN_PASS_MAX_DRAW_COMMANDS);
-    pass->draw_command_capacity = SWAPCHAIN_PASS_MAX_DRAW_COMMANDS;
+    pass->draw_commands = arena_push_array(arena, draw_command_t, MAX_DRAW_COMMANDS_PER_PASS);
+    pass->draw_command_capacity = MAX_DRAW_COMMANDS_PER_PASS;
 
     pass->handle = SWAPCHAIN_PASS_HANDLE;
     pass->color_format = swapchain->format;
@@ -139,9 +159,59 @@ bool VulkanPass_CreateSwapchainPass(arena_t *arena, swapchain_t *swapchain)
     return true;
 }
 
-/* rebuilds the extent-dependent target resources after a swapchain
-   recreation; the pipelines survive since the swapchain format is unchanged
-   and viewport/scissor are dynamic */
+renderpass_handle_t VulkanPass_CreateImagePass(arena_t *arena, texture_handle_t target_texture,
+                                               u32 order)
+{
+    if (s_passes.image_pass_count >= MAX_IMAGE_PASSES)
+    {
+        Log(ERROR, "maximum number of image passes reached");
+        return RENDERPASS_HANDLE_INVALID;
+    }
+
+    render_pass_t *pass = &s_passes.image_passes[s_passes.image_pass_count];
+    MemoryZeroItem(pass);
+    pass->target.type = IMAGE_TARGET;
+
+    image_target_t *target = &pass->target.image_target;
+    target->color_image = VulkanTexture_GetImage(target_texture);
+    target->color_image_view = VulkanTexture_GetImageView(target_texture);
+
+    VkExtent2D extent = VulkanTexture_GetExtent(target_texture);
+    if (!VulkanImage_CreateDepthResources(extent, s_passes.depth_format, &target->depth_image,
+                                          &target->depth_image_view,
+                                          &target->depth_image_memory))
+    {
+        Log(ERROR, "failed to create depth resources for image pass");
+        return RENDERPASS_HANDLE_INVALID;
+    }
+
+    pass->draw_commands = arena_push_array(arena, draw_command_t, MAX_DRAW_COMMANDS_PER_PASS);
+    pass->draw_command_capacity = MAX_DRAW_COMMANDS_PER_PASS;
+
+    pass->handle = (renderpass_handle_t)(s_passes.image_pass_count + 1); /* 1-based */
+    pass->order = order;
+    pass->color_format = VulkanTexture_GetFormat(target_texture);
+    pass->extent = extent;
+    pass->active = true;
+
+    /* keep the bake order sorted; equal orders bake in creation order */
+    u32 slot = s_passes.image_pass_count;
+    while (slot > 0 &&
+           s_passes.image_passes[s_passes.image_pass_order[slot - 1]].order > order)
+    {
+        s_passes.image_pass_order[slot] = s_passes.image_pass_order[slot - 1];
+        slot--;
+    }
+    s_passes.image_pass_order[slot] = s_passes.image_pass_count;
+
+    s_passes.image_pass_count++;
+
+    Log(INFO, "Created image pass %u [%ux%u] order %u", pass->handle, extent.width,
+        extent.height, order);
+
+    return pass->handle;
+}
+
 bool VulkanPass_RecreateSwapchainPass(swapchain_t *swapchain)
 {
     Assert(s_passes.swapchain_set && s_passes.swapchain_pass.active);
@@ -226,7 +296,12 @@ static render_pass_t *get_render_pass(renderpass_handle_t pass_handle)
         s_passes.swapchain_pass.active)
         return &s_passes.swapchain_pass;
 
-    // TODO image target passes
+    if (pass_handle != RENDERPASS_HANDLE_INVALID && pass_handle <= s_passes.image_pass_count)
+    {
+        render_pass_t *pass = &s_passes.image_passes[pass_handle - 1];
+        if (pass->active)
+            return pass;
+    }
 
     return NULL;
 }
@@ -236,7 +311,8 @@ void VulkanPass_BeginFrame()
     if (s_passes.swapchain_set && s_passes.swapchain_pass.active)
         s_passes.swapchain_pass.draw_command_count = 0;
 
-    // TODO image target passes
+    for (u32 i = 0; i < s_passes.image_pass_count; i++)
+        s_passes.image_passes[i].draw_command_count = 0;
 }
 
 void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
@@ -272,7 +348,6 @@ void VulkanPass_AddDrawCommand(const draw_command_t *draw_command)
 
 bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_index)
 {
-    // TODO bake image target passes first, in pass order
     Assert(s_passes.swapchain_set && s_passes.swapchain_pass.active);
 
     VkCommandBufferBeginInfo begin_info = {
@@ -285,6 +360,16 @@ bool VulkanPass_BakeCommandBuffer(VkCommandBuffer command_buffer, u32 image_inde
     {
         Log(ERROR, "failed to begin draw command buffer");
         return false;
+    }
+
+    /* image passes bake first, in pass order, so their targets are ready to
+       be sampled by the passes that follow */
+    for (u32 i = 0; i < s_passes.image_pass_count; i++)
+    {
+        render_pass_t *pass = &s_passes.image_passes[s_passes.image_pass_order[i]];
+
+        if (pass->active && !bake_command_buffer(pass, command_buffer, image_index))
+            return false;
     }
 
     if (!bake_command_buffer(&s_passes.swapchain_pass, command_buffer, image_index))
@@ -304,6 +389,8 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     Assert(pass->active);
     Assert(image_index < MAX_FRAMES_IN_FLIGHT);
 
+    bool image_target = pass->target.type == IMAGE_TARGET;
+
     VkImage color_image = VK_NULL_HANDLE;
     VkImageView color_image_view = VK_NULL_HANDLE;
     VkImage depth_image = VK_NULL_HANDLE;
@@ -317,14 +404,18 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
         depth_image_view = pass->target.swapchain_target.depth_image_view;
         break;
     case IMAGE_TARGET:
-        // TODO
-        return false;
+        color_image = pass->target.image_target.color_image;
+        color_image_view = pass->target.image_target.color_image_view;
+        depth_image = pass->target.image_target.depth_image;
+        depth_image_view = pass->target.image_target.depth_image_view;
+        break;
     }
 
+    /* an image target may still be sampled by a previous frame's draws */
     VkImageMemoryBarrier attachment_barriers[] = {
         {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask = 0,
+            .srcAccessMask = image_target ? VK_ACCESS_SHADER_READ_BIT : 0,
             .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
             .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
             .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -358,20 +449,25 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     vkCmdPipelineBarrier(command_buffer,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
                              | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
-                             | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                             | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
+                             | (image_target ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : 0),
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
                              | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
                              | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                          0, 0, NULL, 0, NULL,
                          ArrayCount(attachment_barriers), attachment_barriers);
 
+    /* image targets clear to transparent black so they composite when drawn
+       with alpha blending */
     VkRenderingAttachmentInfo color_attachment = {
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .imageView = color_image_view,
         .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = { .color = { .float32 = {0.05f, 0.05f, 0.1f, 1.0f} } },
+        .clearValue = image_target
+            ? (VkClearValue){ .color = { .float32 = {0.0f, 0.0f, 0.0f, 0.0f} } }
+            : (VkClearValue){ .color = { .float32 = {0.05f, 0.05f, 0.1f, 1.0f} } },
     };
     VkRenderingAttachmentInfo depth_attachment = {
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
@@ -466,13 +562,15 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
 
     vkCmdEndRendering(command_buffer);
 
-    /* the swapchain image must be in PRESENT_SRC for vkQueuePresentKHR */
-    VkImageMemoryBarrier present_barrier = {
+    /* a swapchain image must be in PRESENT_SRC for vkQueuePresentKHR; an
+       image target moves to SHADER_READ_ONLY for sampling by later passes */
+    VkImageMemoryBarrier finish_barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstAccessMask = 0,
+        .dstAccessMask = image_target ? VK_ACCESS_SHADER_READ_BIT : 0,
         .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .newLayout = image_target ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                  : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = color_image,
@@ -484,8 +582,8 @@ static bool bake_command_buffer(render_pass_t *pass, VkCommandBuffer command_buf
     };
 
     vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1,
-                         &present_barrier);
+                         image_target ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+                         0, NULL, 0, NULL, 1, &finish_barrier);
 
     return true;
 }
@@ -500,7 +598,10 @@ static void destroy_render_pass(render_pass_t *pass)
         destroy_swapchain_target(&pass->target.swapchain_target);
         break;
     case IMAGE_TARGET:
-        // TODO
+        /* the color image is owned by the texture registry */
+        vkDestroyImageView(g_device, pass->target.image_target.depth_image_view, NULL);
+        vkDestroyImage(g_device, pass->target.image_target.depth_image, NULL);
+        vkFreeMemory(g_device, pass->target.image_target.depth_image_memory, NULL);
         break;
     }
 

@@ -9,6 +9,7 @@
 
 /* 0 is the invalid value for every handle type (handles are 1-based indices
    into their registries), so zero-initialized structs hold invalid handles */
+#define RENDERPASS_HANDLE_INVALID 0
 #define PIPELINE_HANDLE_INVALID 0
 #define BUFFER_OBJECT_HANDLE_INVALID 0
 #define TEXTURE_HANDLE_INVALID  0

@@ -128,6 +128,23 @@ exit:
     return result;
 }
 
+bool VulkanImage_CreateColorAttachment(u32 width, u32 height, VkImage *image_out, VkDeviceMemory *image_memory_out, VkImageLayout *layout_out)
+{
+    Assert(width > 0 && height > 0);
+
+    if (!create_image((VkExtent2D){width, height}, 1, VK_SAMPLE_COUNT_1_BIT,
+                      VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, image_out, image_memory_out))
+        return false;
+
+    /* the layout the image holds whenever it is sampled: every image pass
+       leaves its target in SHADER_READ_ONLY_OPTIMAL */
+    *layout_out = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    return true;
+}
+
 /* the copy destination layout must be in the device's pCopyDstLayouts;
    SHADER_READ_ONLY_OPTIMAL is preferred (and near-universal), GENERAL is the
    spec-guaranteed fallback */

@@ -55,6 +55,16 @@ sampler_handle_t Renderer_CreateSampler(void)
     return VulkanRenderer_CreateSampler();
 }
 
+texture_handle_t Renderer_CreateRenderTexture(u32 width, u32 height, sampler_handle_t sampler)
+{
+    return VulkanRenderer_CreateRenderTexture(width, height, sampler);
+}
+
+renderpass_handle_t Renderer_CreateRenderPass(texture_handle_t target_texture, u32 pass_order)
+{
+    return VulkanRenderer_CreateRenderPass(target_texture, pass_order);
+}
+
 window_extent_t Renderer_GetWindowExtent(void)
 {
     VkExtent2D extent = VulkanRenderer_GetExtent();

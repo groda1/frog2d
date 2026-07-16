@@ -43,6 +43,10 @@ struct _textures_t
 
 static textures_t s_textures = {};
 
+static texture_t *get_texture(texture_handle_t handle);
+static texture_handle_t register_texture(texture_t *texture, VkImageLayout layout,
+                                         sampler_handle_t sampler);
+
 
 bool VulkanTexture_Init()
 {
@@ -141,17 +145,6 @@ void VulkanTexture_Destroy()
 texture_handle_t VulkanTexture_Create(u32 width, u32 height, const u8 *rgba_data,
                                       sampler_handle_t sampler)
 {
-    if (s_textures.texture_count >= MAX_TEXTURES)
-    {
-        Log(ERROR, "maximum number of textures reached");
-        return TEXTURE_HANDLE_INVALID;
-    }
-    if (sampler == SAMPLER_HANDLE_INVALID || sampler > s_textures.sampler_count)
-    {
-        Log(ERROR, "invalid sampler handle %u", sampler);
-        return TEXTURE_HANDLE_INVALID;
-    }
-
     texture_t texture = {
         .width = width,
         .height = height,
@@ -166,21 +159,57 @@ texture_handle_t VulkanTexture_Create(u32 width, u32 height, const u8 *rgba_data
         return TEXTURE_HANDLE_INVALID;
     }
 
-    if (!VulkanImage_CreateView(texture.image, texture.format, VK_IMAGE_ASPECT_COLOR_BIT, 1,
-                                &texture.image_view))
+    return register_texture(&texture, layout, sampler);
+}
+
+texture_handle_t VulkanTexture_CreateRenderTarget(u32 width, u32 height, sampler_handle_t sampler)
+{
+    texture_t texture = {
+        .width = width,
+        .height = height,
+        .format = VK_FORMAT_R8G8B8A8_SRGB,
+    };
+
+    VkImageLayout layout;
+    if (!VulkanImage_CreateColorAttachment(width, height, &texture.image,
+                                           &texture.image_memory, &layout))
     {
-        Log(ERROR, "failed to create texture image view");
-        vkDestroyImage(g_device, texture.image, NULL);
-        vkFreeMemory(g_device, texture.image_memory, NULL);
+        Log(ERROR, "failed to create render target image");
         return TEXTURE_HANDLE_INVALID;
     }
 
-    s_textures.textures[s_textures.texture_count++] = texture;
+    return register_texture(&texture, layout, sampler);
+}
+
+/* creates the view, appends to the registry and writes the texture's slot in
+   the global descriptor array; takes ownership of the texture's image */
+static texture_handle_t register_texture(texture_t *texture, VkImageLayout layout,
+                                         sampler_handle_t sampler)
+{
+    if (s_textures.texture_count >= MAX_TEXTURES)
+    {
+        Log(ERROR, "maximum number of textures reached");
+        goto fail;
+    }
+    if (sampler == SAMPLER_HANDLE_INVALID || sampler > s_textures.sampler_count)
+    {
+        Log(ERROR, "invalid sampler handle %u", sampler);
+        goto fail;
+    }
+
+    if (!VulkanImage_CreateView(texture->image, texture->format, VK_IMAGE_ASPECT_COLOR_BIT, 1,
+                                &texture->image_view))
+    {
+        Log(ERROR, "failed to create texture image view");
+        goto fail;
+    }
+
+    s_textures.textures[s_textures.texture_count++] = *texture;
     texture_handle_t handle = (texture_handle_t)s_textures.texture_count; /* 1-based */
 
     VkDescriptorImageInfo image_info = {
         .sampler = s_textures.samplers[sampler - 1],
-        .imageView = texture.image_view,
+        .imageView = texture->image_view,
         .imageLayout = layout,
     };
 
@@ -196,9 +225,14 @@ texture_handle_t VulkanTexture_Create(u32 width, u32 height, const u8 *rgba_data
 
     vkUpdateDescriptorSets(g_device, 1, &write, 0, NULL);
 
-    Log(INFO, "Created texture %u [%ux%u]", handle, width, height);
+    Log(INFO, "Created texture %u [%ux%u]", handle, texture->width, texture->height);
 
     return handle;
+
+fail:
+    vkDestroyImage(g_device, texture->image, NULL);
+    vkFreeMemory(g_device, texture->image_memory, NULL);
+    return TEXTURE_HANDLE_INVALID;
 }
 
 sampler_handle_t VulkanTexture_CreateSampler()
@@ -235,6 +269,36 @@ sampler_handle_t VulkanTexture_CreateSampler()
     s_textures.samplers[s_textures.sampler_count++] = sampler;
 
     return (sampler_handle_t)s_textures.sampler_count; /* 1-based */
+}
+
+/* texture handles are 1-based indices so 0 stays the invalid handle */
+static texture_t *get_texture(texture_handle_t handle)
+{
+    Assert(handle != TEXTURE_HANDLE_INVALID && handle <= s_textures.texture_count);
+
+    return &s_textures.textures[handle - 1];
+}
+
+VkImage VulkanTexture_GetImage(texture_handle_t handle)
+{
+    return get_texture(handle)->image;
+}
+
+VkImageView VulkanTexture_GetImageView(texture_handle_t handle)
+{
+    return get_texture(handle)->image_view;
+}
+
+VkFormat VulkanTexture_GetFormat(texture_handle_t handle)
+{
+    return get_texture(handle)->format;
+}
+
+VkExtent2D VulkanTexture_GetExtent(texture_handle_t handle)
+{
+    texture_t *texture = get_texture(handle);
+
+    return (VkExtent2D){texture->width, texture->height};
 }
 
 VkDescriptorSetLayout VulkanTexture_GetDescriptorSetLayout()

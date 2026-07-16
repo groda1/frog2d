@@ -377,9 +377,21 @@ texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *r
     return VulkanTexture_Create(width, height, rgba_data, sampler);
 }
 
+texture_handle_t VulkanRenderer_CreateRenderTexture(u32 width, u32 height,
+                                                    sampler_handle_t sampler)
+{
+    return VulkanTexture_CreateRenderTarget(width, height, sampler);
+}
+
 sampler_handle_t VulkanRenderer_CreateSampler()
 {
     return VulkanTexture_CreateSampler();
+}
+
+renderpass_handle_t VulkanRenderer_CreateRenderPass(texture_handle_t target_texture,
+                                                    u32 pass_order)
+{
+    return VulkanPass_CreateImagePass(s_renderer->global_arena, target_texture, pass_order);
 }
 
 static bool create_swapchain(bool vsync)

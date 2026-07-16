@@ -16,6 +16,14 @@ shader_code_t Renderer_LoadShader(const char *path);
 texture_handle_t Renderer_LoadTexture(const char *path, sampler_handle_t sampler);
 sampler_handle_t Renderer_CreateSampler(void);
 
+/* a texture that a render pass draws into; sampled like any loaded texture */
+texture_handle_t Renderer_CreateRenderTexture(u32 width, u32 height, sampler_handle_t sampler);
+
+/* a pass rendering into a render texture, cleared to transparent black each
+   frame; passes render in ascending pass_order before the swapchain pass, so
+   any pass can sample the render textures of the passes before it */
+renderpass_handle_t Renderer_CreateRenderPass(texture_handle_t target_texture, u32 pass_order);
+
 pipeline_handle_t Renderer_AddPipeline(renderpass_handle_t pass_handle,
                                        const pipeline_config_t *config);
 

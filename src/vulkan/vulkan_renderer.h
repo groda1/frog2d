@@ -34,6 +34,11 @@ buffer_object_handle_t VulkanRenderer_CreateStorageBuffer(u64 capacity);
 
 texture_handle_t VulkanRenderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
                                               sampler_handle_t sampler);
+texture_handle_t VulkanRenderer_CreateRenderTexture(u32 width, u32 height,
+                                                    sampler_handle_t sampler);
 sampler_handle_t VulkanRenderer_CreateSampler();
+
+renderpass_handle_t VulkanRenderer_CreateRenderPass(texture_handle_t target_texture,
+                                                    u32 pass_order);
 
 #endif

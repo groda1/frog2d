@@ -60,6 +60,12 @@ typedef struct
     pipeline_handle_t quad_pipeline;
     buffer_object_handle_t vp_uniform_ortho;
 
+    /* right cube rendered into a low-res image target, shown on a quad */
+    texture_handle_t cube_render_texture;
+    renderpass_handle_t cube_pass;
+    pipeline_handle_t cube_offscreen_pipeline;
+    buffer_object_handle_t vp_uniform_cube_pass;
+
 } game_t;
 
 static game_t g_game;
@@ -204,12 +210,57 @@ bool Game_Init(platform_window_t *window)
                 .stage = UNIFORM_STAGE_VERTEX,
             },
         },
+        .alpha_blending = true,
     };
 
     g_game.quad_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &quad_pipeline_config);
     if (g_game.quad_pipeline == PIPELINE_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create flat textured pipeline");
+        Engine_Destroy();
+        return false;
+    }
+
+    /* offscreen cube: a 128x128 image target displayed on a 512x512 quad */
+    g_game.cube_render_texture = Renderer_CreateRenderTexture(128, 128, sampler);
+    if (g_game.cube_render_texture == TEXTURE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create cube render texture");
+        Engine_Destroy();
+        return false;
+    }
+
+    g_game.cube_pass = Renderer_CreateRenderPass(g_game.cube_render_texture, 0);
+    if (g_game.cube_pass == RENDERPASS_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create cube render pass");
+        Engine_Destroy();
+        return false;
+    }
+
+    g_game.vp_uniform_cube_pass = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
+                                                               UNIFORM_STAGE_VERTEX);
+    if (g_game.vp_uniform_cube_pass == BUFFER_OBJECT_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create cube pass view projection uniform");
+        Engine_Destroy();
+        return false;
+    }
+
+    view_projection_t cube_pass_vp = {
+        .view = HMM_M4D(1.0f),
+        .proj = HMM_Perspective_RH_NO(HMM_AngleDeg(60.0f), 1.0f, 0.1f, 100.0f),
+    };
+    Renderer_SetBufferObject(g_game.vp_uniform_cube_pass, &cube_pass_vp, sizeof(cube_pass_vp));
+
+    pipeline_config_t cube_offscreen_config = cube_pipeline_config;
+    cube_offscreen_config.uniform_bindings[0].buffer_object = g_game.vp_uniform_cube_pass;
+
+    g_game.cube_offscreen_pipeline = Renderer_AddPipeline(g_game.cube_pass,
+                                                          &cube_offscreen_config);
+    if (g_game.cube_offscreen_pipeline == PIPELINE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create offscreen cube pipeline");
         Engine_Destroy();
         return false;
     }
@@ -300,9 +351,10 @@ void Game_Tick(void)
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.cube_pipeline, &cube_push_constant,
                       g_game.cube_mesh);
 
-    cube_push_constant.transform = HMM_MulM4(HMM_Translate(V3(1.5f, 0.0f, -3.0f)), HMM_QToM4(g_game.cube_orientation));
+    /* right cube: rendered offscreen into the cube pass, centered in its view */
+    cube_push_constant.transform = HMM_MulM4(HMM_Translate(V3(0.0f, 0.0f, -2.0f)), HMM_QToM4(g_game.cube_orientation));
     cube_push_constant.color = V4(0.5f, 0.9f, 0.2f, 1.0f);
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.cube_pipeline, &cube_push_constant,
+    Renderer_DrawMesh(g_game.cube_pass, g_game.cube_offscreen_pipeline, &cube_push_constant,
                       g_game.cube_mesh);
 
     /* textured quad */
@@ -319,8 +371,15 @@ void Game_Tick(void)
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
                       g_game.quad_mesh);
 
+    /* the offscreen cube's 128x128 target upscaled onto a 512x512 quad */
+    quad_push_constant.transform = HMM_MulM4(HMM_Translate(V3((f32)extent.width - 400.0f, 408.0f, 0.0f)), HMM_Scale(V3(1024.0f, 1024.0f, 1.0f)));
+    quad_push_constant.color = V4(1.0f, 1.0f, 1.0f, 1.0f);
+    quad_push_constant.texture = g_game.cube_render_texture;
+    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
+                      g_game.quad_mesh);
+
     Draw_SetTextSize(64);
-    Draw_Text(800, 500, string_lit("test 123 !# <foobar>"));
+    Draw_Text(800, 512, string_lit("test 123 !# <foobar>"));
     Draw_Text(800, 440, string_lit("WTF!!!!"));
     Draw_SetTextSize(16);
 

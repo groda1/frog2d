@@ -14,6 +14,8 @@ bool VulkanImage_CreateView(VkImage image, VkFormat format, VkImageAspectFlags a
 bool VulkanImage_CreateStatic(u32 width, u32 height, const u8 *rgba_data, VkImage *image_out,
                               VkDeviceMemory *image_memory_out, VkImageLayout *layout_out);
 
+bool VulkanImage_CreateColorAttachment(u32 width, u32 height, VkImage *image_out, VkDeviceMemory *image_memory_out, VkImageLayout *layout_out);
+
 bool VulkanImage_CreateDepthResources(VkExtent2D image_extent, VkFormat depth_format,
                                       VkImage *image_out, VkImageView *image_view_out,
                                       VkDeviceMemory *device_memory_out);
