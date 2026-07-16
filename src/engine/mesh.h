@@ -6,9 +6,12 @@
 #include "core_string.h"
 #include "memory_arena.h"
 
-#define MESH_INVALID_HANDLE 0
+#define MESH_INVALID_HANDLE NULL
 
-typedef u32 mesh_handle_t;
+/* opaque: mesh_t is only completed by the engine-private mesh_internal.h,
+   so the mesh data (gpu buffer handles) never leaves the engine */
+typedef struct _mesh_t mesh_t;
+typedef const mesh_t *mesh_handle_t;
 
 typedef enum
 {
@@ -26,6 +29,8 @@ typedef enum
 
     PREDEFINED_MESH_TEXTURED_TRIANGLE = 10,
     PREDEFINED_MESH_TEXTURED_QUAD     = 11,
+
+    PREDEFINED_MESH_COUNT,
 } predefined_mesh_t;
 
 typedef struct _simple_vertex_t simple_vertex_t;
@@ -58,6 +63,7 @@ struct _textured_vertex_t
 
 bool MeshManager_Init(arena_t *arena);
 
+mesh_handle_t MeshManager_GetPredefinedMesh(predefined_mesh_t mesh);
 mesh_handle_t MeshManager_LoadMesh(string path);
 
 #endif

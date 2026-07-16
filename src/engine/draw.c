@@ -44,6 +44,7 @@ typedef struct
 
     buffer_object_handle_t vp_uniform;
     mesh_handle_t quad_mesh;
+    mesh_handle_t textured_quad_mesh;
 
     // Simple mesh drawing
     u64 colored_sbo_capacity;
@@ -66,6 +67,9 @@ static draw_renderer_t s_draw = {};
 
 bool Draw_Init()
 {
+    s_draw.quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_SIMPLE_QUAD);
+    s_draw.textured_quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_TEXTURED_QUAD);
+
     s_draw.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t), UNIFORM_STAGE_VERTEX);
     if (s_draw.vp_uniform == BUFFER_OBJECT_HANDLE_INVALID)
     {
@@ -260,7 +264,7 @@ void Draw_EndFrame()
             &color_push_constant,
             s_draw.colored_sbo,
             s_draw.colored_sbo_len,
-            PREDEFINED_MESH_SIMPLE_QUAD);
+            s_draw.quad_mesh);
     }
 
     if (s_draw.text_sbo_len)
@@ -272,6 +276,6 @@ void Draw_EndFrame()
             &text_push_constant,
             s_draw.text_sbo,
             s_draw.text_sbo_len,
-            PREDEFINED_MESH_TEXTURED_QUAD);
+            s_draw.textured_quad_mesh);
     }
 }

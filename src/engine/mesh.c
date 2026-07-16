@@ -1,5 +1,4 @@
 #include "core.h"
-#include "hash_map.h"
 #include "log.h"
 #include "memory_arena.h"
 
@@ -7,14 +6,10 @@
 #include "mesh_internal.h"
 #include "vulkan_renderer.h"
 
-#define MESH_START_HANDLE 1000
-#define MESH_MAP_BUCKET_COUNT 512
-
 typedef struct
 {
     arena_t *arena;
-    hash_map_t meshes;
-    mesh_handle_t next_handle;
+    const mesh_t *predefined[PREDEFINED_MESH_COUNT];
 } mesh_collection_t;
 
 static mesh_collection_t *s_meshes;
@@ -22,15 +17,13 @@ static mesh_collection_t *s_meshes;
 static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size);
 static VkBuffer create_static_index_buffer(const u32 *indices, u32 index_count);
 static bool load_obj_mesh(string path, mesh_t *mesh_out);
-static mesh_t *insert_mesh(mesh_handle_t handle, VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count);
+static mesh_t *create_mesh(VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count);
 static void load_predefined_meshes(void);
 
 bool MeshManager_Init(arena_t *arena)
 {
     s_meshes = arena_push(arena, mesh_collection_t);
     s_meshes->arena = arena;
-    s_meshes->meshes = HashMap_Create(arena, MESH_MAP_BUCKET_COUNT);
-    s_meshes->next_handle = MESH_START_HANDLE;
 
     load_predefined_meshes();
 
@@ -38,12 +31,14 @@ bool MeshManager_Init(arena_t *arena)
     return true;
 }
 
-mesh_t *MeshManager_GetMesh(mesh_handle_t handle)
+mesh_handle_t MeshManager_GetPredefinedMesh(predefined_mesh_t mesh)
 {
-    mesh_t *mesh = HashMap_U32Ptr_Get(&s_meshes->meshes, handle);
-    AssertAlways(mesh != NULL);
+    Assert(mesh > 0 && mesh < PREDEFINED_MESH_COUNT);
 
-    return mesh;
+    const mesh_t *predefined = s_meshes->predefined[mesh];
+    AssertAlways(predefined != NULL);
+
+    return predefined;
 }
 
 mesh_handle_t MeshManager_LoadMesh(string path)
@@ -70,10 +65,7 @@ mesh_handle_t MeshManager_LoadMesh(string path)
         if (!load_obj_mesh(path, &mesh))
             return MESH_INVALID_HANDLE;
 
-        mesh_handle_t handle = s_meshes->next_handle++;
-        insert_mesh(handle, mesh.vertex_buffer, mesh.index_buffer, mesh.index_count);
-
-        return handle;
+        return create_mesh(mesh.vertex_buffer, mesh.index_buffer, mesh.index_count);
     }
 
     Log(ERROR, "failed to load mesh: %.*s", (int)path.len, path.str);
@@ -105,16 +97,20 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
     return false;
 }
 
-static mesh_t *insert_mesh(mesh_handle_t handle, VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count)
+static mesh_t *create_mesh(VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count)
 {
     mesh_t *mesh = arena_push(s_meshes->arena, mesh_t);
     mesh->vertex_buffer = vertex_buffer;
     mesh->index_buffer = index_buffer;
     mesh->index_count = index_count;
 
-    HashMap_U32Ptr_Insert(&s_meshes->meshes, handle, mesh);
-
     return mesh;
+}
+
+static void insert_predefined_mesh(predefined_mesh_t slot, VkBuffer vertex_buffer,
+                                   VkBuffer index_buffer, u32 index_count)
+{
+    s_meshes->predefined[slot] = create_mesh(vertex_buffer, index_buffer, index_count);
 }
 
 static void load_predefined_meshes(void)
@@ -137,8 +133,8 @@ static void load_predefined_meshes(void)
         VkBuffer simple_vertex_buffer = create_static_vertex_buffer(simple_vertices, sizeof(simple_vertices));
         VkBuffer index_buffer = create_static_index_buffer(indices, ArrayCount(indices));
 
-        insert_mesh(PREDEFINED_MESH_SIMPLE_TRIANGLE, simple_vertex_buffer, index_buffer, ArrayCount(indices));
-        insert_mesh(PREDEFINED_MESH_COLORED_TRIANGLE, colored_vertex_buffer, index_buffer, ArrayCount(indices));
+        insert_predefined_mesh(PREDEFINED_MESH_SIMPLE_TRIANGLE, simple_vertex_buffer, index_buffer, ArrayCount(indices));
+        insert_predefined_mesh(PREDEFINED_MESH_COLORED_TRIANGLE, colored_vertex_buffer, index_buffer, ArrayCount(indices));
     }
 
     // Quads
@@ -175,10 +171,10 @@ static void load_predefined_meshes(void)
         VkBuffer textured_vertex_buffer = create_static_vertex_buffer(textured_vertices, sizeof(textured_vertices));
         VkBuffer index_buffer = create_static_index_buffer(indices, ArrayCount(indices));
 
-        insert_mesh(PREDEFINED_MESH_SIMPLE_QUAD, simple_vertex_buffer, index_buffer, ArrayCount(indices));
-        insert_mesh(PREDEFINED_MESH_NORMALED_QUAD, normaled_vertex_buffer, index_buffer, ArrayCount(indices));
-        insert_mesh(PREDEFINED_MESH_COLORED_QUAD, colored_vertex_buffer, index_buffer, ArrayCount(indices));
-        insert_mesh(PREDEFINED_MESH_TEXTURED_QUAD, textured_vertex_buffer, index_buffer, ArrayCount(indices));
+        insert_predefined_mesh(PREDEFINED_MESH_SIMPLE_QUAD, simple_vertex_buffer, index_buffer, ArrayCount(indices));
+        insert_predefined_mesh(PREDEFINED_MESH_NORMALED_QUAD, normaled_vertex_buffer, index_buffer, ArrayCount(indices));
+        insert_predefined_mesh(PREDEFINED_MESH_COLORED_QUAD, colored_vertex_buffer, index_buffer, ArrayCount(indices));
+        insert_predefined_mesh(PREDEFINED_MESH_TEXTURED_QUAD, textured_vertex_buffer, index_buffer, ArrayCount(indices));
     }
 
     // Cube
@@ -228,6 +224,6 @@ static void load_predefined_meshes(void)
         VkBuffer cube_vertex_buffer = create_static_vertex_buffer(cube_vertices, sizeof(cube_vertices));
         VkBuffer cube_index_buffer = create_static_index_buffer(cube_indices, ArrayCount(cube_indices));
 
-        insert_mesh(PREDEFINED_MESH_NORMALED_CUBE, cube_vertex_buffer, cube_index_buffer, ArrayCount(cube_indices));
+        insert_predefined_mesh(PREDEFINED_MESH_NORMALED_CUBE, cube_vertex_buffer, cube_index_buffer, ArrayCount(cube_indices));
     }
 }

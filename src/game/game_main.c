@@ -75,7 +75,7 @@ bool Game_Init(platform_window_t *window)
     if (!Engine_Init(window))
         return false;
 
-    g_game.mesh = PREDEFINED_MESH_COLORED_TRIANGLE;
+    g_game.mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_COLORED_TRIANGLE);
 
     window_extent_t extent = Renderer_GetWindowExtent();
     g_game.position = V3((f32)extent.width / 2.0f, (f32)extent.height / 2.0f, 0.0f);
@@ -110,7 +110,7 @@ bool Game_Init(platform_window_t *window)
     }
 
     /* cube */
-    g_game.cube_mesh = PREDEFINED_MESH_NORMALED_CUBE;
+    g_game.cube_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_NORMALED_CUBE);
     g_game.cube_orientation = HMM_Q(0.0f, 0.0f, 0.0f, 1.0f);
 
     g_game.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
@@ -156,7 +156,7 @@ bool Game_Init(platform_window_t *window)
     }
 
     /* textured quad */
-    g_game.quad_mesh = PREDEFINED_MESH_TEXTURED_QUAD;
+    g_game.quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_TEXTURED_QUAD);
 
     g_game.vp_uniform_ortho = Renderer_CreateUniformBuffer(sizeof(view_projection_t), UNIFORM_STAGE_VERTEX);
 
