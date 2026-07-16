@@ -3,7 +3,6 @@
 - console
 - sort draw commands by pipeline to minimize rebinds
 - investigate ASAN with arena. How to intercept and so on
-- hashmap lookup on draw call
 
 # claude's notes
 
@@ -14,12 +13,19 @@ vulkan 1.4 features we now have access to but don't use yet:
   bake time. Would delete the per-pipeline descriptor pool TODO.
 - maintenance4+: pipeline layouts allow VK_NULL_HANDLE holes in set layouts,
   relaxed subgroup ops, etc. Minor conveniences.
-- per-frame GPU arena: instance data (text, sprites) is rewritten every frame,
-  so it wants a transient allocator, not a persistent buffer per system — one
-  buffer per frame-in-flight, sub-allocate ranges each frame (cursor reset in
-  BeginFrame, like frame_arena on the cpu side), each draw gets base + offset
-  via BDA push constant. Growth only happens at the arena level, at frame
-  boundaries.
+- per-frame GPU arena: built and scrapped 2026-07-15 — it forked storage
+  buffers into a parallel model next to the uniform buffer objects. Growable
+  SBOs landed inside the buffer object model instead (see below); don't
+  revisit the arena unless upload counts actually become a problem.
+- image render targets: done 2026-07-16. Renderer_CreateRenderTexture(w,h,
+  sampler) makes a color-attachment texture in the bindless array (sampled
+  like any texture); Renderer_CreateRenderPass(texture, order) makes a pass
+  targeting it (own depth buffer, cleared to transparent black). Image
+  passes bake before the swapchain pass in ascending order; explicit
+  barriers do what vulkrap's subpass dependencies did (attachment write →
+  fragment read). Follow-ups: remove_render_pass not ported (needs pipeline
+  destroy + retire); render textures are fixed-size (no resize path); pass
+  clear color is hardcoded per target type
 
 deprioritized (current sync works fine, revisit if it grows hairier):
 
@@ -34,22 +40,21 @@ deprioritized (current sync works fine, revisit if it grows hairier):
 
 texture path follow-ups:
 
-- when the texture index moves from push constant to per-instance SSBO data,
-  the array index becomes non-uniform: wrap with nonuniformEXT() in the shader
-  (the device feature is already enabled)
+- per-instance texture indices are live (2d_ssbo, done 2026-07-16): the 2d
+  pipeline samples textures[nonuniformEXT(index)] per instance; colored
+  quads sample a 1x1 white texture so every instance takes the same
+  branch-free path (uv rect + alpha-source mask computed per instance)
 - no mipmaps: sampler is clamped to maxLod 1.0 and upload creates 1 mip level;
   generate mips at upload (vkCmdBlitImage chain)
 - sampler config is hardcoded (NEAREST mag / LINEAR min, repeat, aniso 16);
   expose filtering/addressing per sampler, e.g. sampler_config_t
-- storage buffers (BDA, done) are fixed-capacity; agreed sequencing toward
-  growth (planned 2026-07-08): 1) deferred-destroy queue in vulkan_buffer.c
-  (frame counter + retire list, destroy after MAX_FRAMES_IN_FLIGHT frames;
-  also useful for texture streaming later), 2) per-frame GPU arena (see
-  above) which handles all rewritten-every-frame data and only grows at
-  frame boundaries, 3) per-object growth in SetObjectData only if something
-  persistent actually hits its cap. Arena staging should be persistently
-  mapped; ReBAR host-visible device-local is an option to skip staging
-  entirely for transient data
+- storage buffers grow on demand (done 2026-07-15): Set/Push doubles the cpu
+  shadow, the per-frame buffers are rebuilt at bake (after the fence wait)
+  and the old ones sit on a retire queue for MAX_FRAMES_IN_FLIGHT frames —
+  same buffer object model as uniforms, growth is just a capacity policy.
+  Uniforms stay fixed-cap: their buffers are referenced by descriptor sets
+  written at pipeline creation, so swapping them means descriptor updates.
+  The retire queue is also the building block for texture streaming later
 - uniform buffers (set 1) could migrate into the global set model too; then
   every pipeline shares one layout and descriptor code exists in exactly one
   place

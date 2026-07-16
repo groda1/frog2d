@@ -4,9 +4,11 @@
 struct instance_data {
     vec2 position;
     vec2 size;
-    int character;
+    vec2 uv_min;
+    vec2 uv_max;
     vec4 color;
-    uint textureIndex;
+    uint texture_index;
+    uint text;
 };
 
 layout(std430, buffer_reference) readonly buffer InstanceData {
@@ -19,7 +21,7 @@ layout(set = 1, binding = 0) uniform UniformBufferObject {
 } vp;
 
 layout(push_constant) uniform pushConstants {
-    InstanceData text_data;
+    InstanceData quad_data;
 } pc;
 
 layout(location = 0) in vec3 inPosition;
@@ -27,34 +29,20 @@ layout(location = 1) in vec2 inTexCoord;
 
 layout(location = 0) flat out vec4 fragColor;
 layout(location = 1) out vec2 fragTexCoord;
-layout(location = 2) flat out uint character;
-layout(location = 3) flat out uint textureIndex;
-
-const int WIDTH = 16;
-const float CHAR_WIDTH = 1.0/16.0;
-const float CHAR_HEIGHT = 1.0/6.0;
+layout(location = 2) flat out uint textureIndex;
+layout(location = 3) flat out vec4 alphaMask;
 
 void main() {
-    instance_data instance = pc.text_data.instances[gl_InstanceIndex];
+    instance_data instance = pc.quad_data.instances[gl_InstanceIndex];
 
     fragColor = instance.color;
+    fragTexCoord = mix(instance.uv_min, instance.uv_max, inTexCoord);
+    textureIndex = instance.texture_index;
 
-    // is this a text character?
-    if (instance.character > 0)
-    {
-        int character = instance.character - 32; // First ASCII character in the texture will be 32
-        int offset_y = character / WIDTH;
-        int offset_x = character % WIDTH;
-        fragTexCoord = vec2(inTexCoord.x * CHAR_WIDTH + offset_x * CHAR_WIDTH, inTexCoord.y * CHAR_HEIGHT + offset_y * CHAR_HEIGHT);
-    }
-    else
-    {
-        fragTexCoord = inTexCoord;
-    }
+    // text glyphs take their alpha from the atlas' red channel, everything
+    // else from the texture's alpha channel
+    alphaMask = instance.text != 0 ? vec4(1.0, 0.0, 0.0, 0.0) : vec4(0.0, 0.0, 0.0, 1.0);
 
-    vec4 position = vec4((inPosition.x * instance.size.x) + instance.position.x, (inPosition.y * (instance.size.y)) + instance.position.y, 0.0, 1.0);
+    vec4 position = vec4((inPosition.x * instance.size.x) + instance.position.x, (inPosition.y * instance.size.y) + instance.position.y, 0.0, 1.0);
     gl_Position = vp.proj * vp.view * position;
-    textureIndex = instance.textureIndex;
-
-    character = instance.character;
 }

@@ -14,6 +14,11 @@ shader_code_t Renderer_LoadShader(const char *path);
 
 /* the returned handle indexes the global texture array in shaders */
 texture_handle_t Renderer_LoadTexture(const char *path, sampler_handle_t sampler);
+
+/* texture from raw pixels (width * height * 4 bytes, copied during the
+   call); same handle semantics as Renderer_LoadTexture */
+texture_handle_t Renderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
+                                        sampler_handle_t sampler);
 sampler_handle_t Renderer_CreateSampler(void);
 
 /* a texture that a render pass draws into; sampled like any loaded texture */

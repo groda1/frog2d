@@ -383,5 +383,10 @@ void Game_Tick(void)
     Draw_Text(800, 440, string_lit("WTF!!!!"));
     Draw_SetTextSize(16);
 
+    /* draw order test: quad under text, textured quad over text */
+    Draw_Quad(80, 200, 300, 60, V4(0.8, 0.2, 0.2, 1.0));
+    Draw_Text(90, 220, string_lit("text over quad"));
+    Draw_TexturedQuad(300, 180, 100, 100, V4(1.0, 1.0, 1.0, 0.8), g_game.quad_texture);
+
     Engine_EndFrame();
 }

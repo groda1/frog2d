@@ -9,19 +9,24 @@
 
 #include "draw.h"
 
-#define COLORED_QUAD -1
-#define TEXTURED_QUAD -2
+#define FONT_ATLAS_COLUMNS    16
+#define FONT_ATLAS_ROWS       6
+#define FONT_ATLAS_FIRST_CHAR 32
 
-/* layout of 2d_text_ssbo.vert's instance_data */
+/* layout of 2d_ssbo.vert's instance_data (std430, 64-byte stride; vec4
+   color is 16-aligned on both sides) */
 typedef struct
 {
     vec2 position;
     vec2 size;
-    i32  character;
+    vec2 uv_min;
+    vec2 uv_max;
     vec4 color;
     texture_handle_t texture;
+    u32  text;
 } quad_instance_t;
 
+StaticAssert(sizeof(quad_instance_t) == 64, "quad_instance_t must match the shader's std430 stride");
 
 typedef struct
 {
@@ -33,14 +38,15 @@ typedef struct
 {
     buffer_object_handle_t vp_uniform;
     mesh_handle_t quad_mesh;
-    mesh_handle_t textured_quad_mesh;
 
     u64 sbo_capacity;
     u64 sbo_len;
     buffer_object_handle_t sbo;
     pipeline_handle_t pipeline;
 
+    texture_handle_t white_texture;
     texture_handle_t font_texture;
+
     vec4 char_color;
     u32 char_size;
 
@@ -50,8 +56,7 @@ static draw_renderer_t s_draw = {};
 
 bool Draw_Init()
 {
-    s_draw.quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_SIMPLE_QUAD);
-    s_draw.textured_quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_TEXTURED_QUAD);
+    s_draw.quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_TEXTURED_QUAD);
 
     s_draw.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t), UNIFORM_STAGE_VERTEX);
     if (s_draw.vp_uniform == BUFFER_OBJECT_HANDLE_INVALID)
@@ -64,7 +69,7 @@ bool Draw_Init()
     s_draw.sbo = Renderer_CreateStorageBuffer(s_draw.sbo_capacity * sizeof(quad_instance_t));
     if (s_draw.sbo == BUFFER_OBJECT_HANDLE_INVALID)
     {
-        Log(ERROR, "failed to create text renderer SBO");
+        Log(ERROR, "failed to create 2d renderer SBO");
         return false;
     }
 
@@ -75,6 +80,14 @@ bool Draw_Init()
         return false;
     }
 
+    static const u8 white_pixel[4] = {255, 255, 255, 255};
+    s_draw.white_texture = Renderer_CreateTexture(1, 1, white_pixel, sampler);
+    if (s_draw.white_texture == TEXTURE_HANDLE_INVALID)
+    {
+        Log(ERROR, "failed to create white texture");
+        return false;
+    }
+
     s_draw.font_texture = Renderer_LoadTexture("resources/textures/font2.png", sampler);
     if (s_draw.font_texture == TEXTURE_HANDLE_INVALID)
     {
@@ -82,8 +95,8 @@ bool Draw_Init()
         return false;
     }
 
-    pipeline_config_t text_pipeline_config = {
-        .name = "text-renderer",
+    pipeline_config_t pipeline_config = {
+        .name = "2d-renderer",
         .vertex_shader = Renderer_LoadShader("shaders/2d_ssbo.vert.spv"),
         .fragment_shader = Renderer_LoadShader("shaders/2d_ssbo.frag.spv"),
         .push_constant_size = sizeof(push_constant_t),
@@ -113,10 +126,10 @@ bool Draw_Init()
         .disable_depth_test = true,
     };
 
-    s_draw.pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &text_pipeline_config);
+    s_draw.pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &pipeline_config);
     if (s_draw.pipeline == PIPELINE_HANDLE_INVALID)
     {
-        Log(ERROR, "failed to create text pipeline");
+        Log(ERROR, "failed to create 2d pipeline");
         return false;
     }
 
@@ -146,28 +159,16 @@ void Draw_HandleResize(u32 width, u32 height)
 
 bool Draw_Quad(u32 x, u32 y, u32 width, u32 height, vec4 color)
 {
-    quad_instance_t quad = {
-        .position = V2((f32)x + ((f32)width/2.0), (f32)y + ((f32)height/ 2.0)),
-        .character = COLORED_QUAD,
-        .size = V2((f32)width, (f32)height),
-        .color = color,
-        .texture = 0,
-    };
-
-    Renderer_PushBufferObject(s_draw.sbo, &quad, sizeof(quad));
-    s_draw.sbo_len++;
-
-    return true;
+    return Draw_TexturedQuad(x, y, width, height, color, s_draw.white_texture);
 }
 
 bool Draw_TexturedQuad(u32 x, u32 y, u32 width, u32 height, vec4 color, texture_handle_t texture)
 {
-    (void)texture;
-
     quad_instance_t quad = {
         .position = V2((f32)x + ((f32)width/2.0), (f32)y + ((f32)height/ 2.0)),
-        .character = TEXTURED_QUAD,
         .size = V2((f32)width, (f32)height),
+        .uv_min = V2(0.0f, 0.0f),
+        .uv_max = V2(1.0f, 1.0f),
         .color = color,
         .texture = texture,
     };
@@ -192,12 +193,18 @@ bool Draw_Text(u32 x, u32 y, string text)
 {
     for (u32 i = 0; i < text.len; i++)
     {
+        u32 cell = (u32)text.str[i] - FONT_ATLAS_FIRST_CHAR;
+        f32 u0 = (f32)(cell % FONT_ATLAS_COLUMNS) / FONT_ATLAS_COLUMNS;
+        f32 v0 = (f32)(cell / FONT_ATLAS_COLUMNS) / FONT_ATLAS_ROWS;
+
         quad_instance_t character = {
             .position = V2((f32)x + (f32)(i * s_draw.char_size) + (f32)s_draw.char_size / 2, (f32)y + (f32)s_draw.char_size),
-            .character = text.str[i],
             .size = V2((f32)s_draw.char_size, (f32)s_draw.char_size * 2),
+            .uv_min = V2(u0, v0),
+            .uv_max = V2(u0 + 1.0f / FONT_ATLAS_COLUMNS, v0 + 1.0f / FONT_ATLAS_ROWS),
             .color = s_draw.char_color,
             .texture = s_draw.font_texture,
+            .text = 1,
         };
 
         Renderer_PushBufferObject(s_draw.sbo, &character, sizeof(character));
@@ -224,6 +231,6 @@ void Draw_EndFrame()
             &push_constant,
             s_draw.sbo,
             s_draw.sbo_len,
-            s_draw.textured_quad_mesh);
+            s_draw.quad_mesh);
     }
 }

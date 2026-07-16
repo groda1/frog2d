@@ -50,6 +50,12 @@ texture_handle_t Renderer_LoadTexture(const char *path, sampler_handle_t sampler
     return texture;
 }
 
+texture_handle_t Renderer_CreateTexture(u32 width, u32 height, const u8 *rgba_data,
+                                        sampler_handle_t sampler)
+{
+    return VulkanRenderer_CreateTexture(width, height, rgba_data, sampler);
+}
+
 sampler_handle_t Renderer_CreateSampler(void)
 {
     return VulkanRenderer_CreateSampler();
