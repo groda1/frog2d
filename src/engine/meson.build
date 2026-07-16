@@ -6,4 +6,5 @@ engine_sources += files(
     'mesh.c',
     'draw.c',
     'renderer.c',
+    'console.c',
 )

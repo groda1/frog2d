@@ -1,7 +1,6 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include "core.h"
 #include "core_math.h"
 #include "core_string.h"
 #include "memory_arena.h"

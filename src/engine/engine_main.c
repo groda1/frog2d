@@ -5,10 +5,12 @@
 
 #include "engine_main.h"
 #include "mesh.h"
+#include "platform.h"
 #include "render_types.h"
 #include "renderer.h"
 #include "draw.h"
 #include "vulkan_renderer.h"
+#include "console.h"
 
 static arena_t *g_engine_arena;
 
@@ -59,6 +61,22 @@ void Engine_HandleResize(u32 width, u32 height)
     Draw_HandleResize(width, height);
 }
 
+key_handle_result_t Engine_HandleKeyDown(key_code_t key)
+{
+    if (Console_HandleKeyDown(key) == KEY_EVENT_CONSUMED)
+        return KEY_EVENT_CONSUMED;
+
+    return KEY_EVENT_PASSTHROUGH;
+}
+
+key_handle_result_t Engine_HandleKeyUp(key_code_t key)
+{
+    if (Console_HandleKeyUp(key) == KEY_EVENT_CONSUMED)
+        return KEY_EVENT_CONSUMED;
+
+    return KEY_EVENT_PASSTHROUGH;
+}
+
 f32 Engine_BeginFrame(void)
 {
     static u64 last_time_ns;
@@ -73,8 +91,13 @@ f32 Engine_BeginFrame(void)
     VulkanRenderer_BeginFrame(); // Needs to be first
     Draw_BeginFrame();
 
+    Console_Update(delta_time);
 
     draw_version_label();
+
+    Console_Draw();
+
+
 
     return delta_time;
 }

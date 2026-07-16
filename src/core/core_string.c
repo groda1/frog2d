@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include "core.h"
+#include "memory_arena.h"
 
 #include "core_string.h"
+
 
 string string_new(arena_t *arena, u64 capacity)
 {

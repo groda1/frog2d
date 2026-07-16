@@ -36,6 +36,12 @@ typedef enum
 
 typedef enum
 {
+    KEY_EVENT_PASSTHROUGH,
+    KEY_EVENT_CONSUMED,
+} key_handle_result_t;
+
+typedef enum
+{
     PLATFORM_EVENT_QUIT,
     PLATFORM_EVENT_KEY_DOWN,
     PLATFORM_EVENT_KEY_UP,

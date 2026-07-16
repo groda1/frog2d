@@ -40,8 +40,6 @@ typedef struct
 
 typedef struct
 {
-
-
     buffer_object_handle_t vp_uniform;
     mesh_handle_t quad_mesh;
     mesh_handle_t textured_quad_mesh;
