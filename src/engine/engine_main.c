@@ -112,7 +112,7 @@ void Engine_EndFrame(void)
 static void draw_version_label()
 {
     window_extent_t extent = Renderer_GetWindowExtent();
-    Draw_SetTextSize(16);
+    Draw_SetTextSize(24);
     Draw_SetTextColor(V4(1.0, 1.0, 1.0, 1.0));
-    Draw_Text(extent.width - 164, extent.height - 34, string_lit("DCFS 0.0.1"));
+    Draw_Text(extent.width - (196 + 48), extent.height - 48, string_lit("DCFS 0.0.1"));
 }
