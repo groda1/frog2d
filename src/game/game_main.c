@@ -383,9 +383,5 @@ void Game_Tick(void)
     Draw_Text(800, 440, string_lit("WTF!!!!"));
     Draw_SetTextSize(16);
 
-
-    Draw_Quad(8, extent.height - 40, 200, 32, V4(0.2, 0.8, 0.2, 1.0));
-    Draw_Text(8, extent.height - 32 - 8, string_lit("WTF!!!!"));
-
     Engine_EndFrame();
 }

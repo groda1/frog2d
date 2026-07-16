@@ -9,33 +9,24 @@
 
 #include "draw.h"
 
-/* layout of 2d_color_ssbo.vert's instance_data */
-typedef struct
-{
-    vec2 position;
-    vec2  size;
-    vec4 color;
-} color_instance_t;
+#define COLORED_QUAD -1
+#define TEXTURED_QUAD -2
 
 /* layout of 2d_text_ssbo.vert's instance_data */
 typedef struct
 {
     vec2 position;
+    vec2 size;
     i32  character;
-    f32  size;
     vec4 color;
-} character_instance_t;
+    texture_handle_t texture;
+} quad_instance_t;
+
 
 typedef struct
 {
     u64 __instance_data_address; /* storage buffer device address, filled in by the renderer */
-} color_push_constant_t;
-
-typedef struct
-{
-    u64 __instance_data_address; /* storage buffer device address, filled in by the renderer */
-    u32 texture;
-} text_push_constant_t;
+} push_constant_t;
 
 
 typedef struct
@@ -44,17 +35,11 @@ typedef struct
     mesh_handle_t quad_mesh;
     mesh_handle_t textured_quad_mesh;
 
-    // Simple mesh drawing
-    u64 colored_sbo_capacity;
-    u64 colored_sbo_len;
-    buffer_object_handle_t colored_sbo;
-    pipeline_handle_t colored_pipeline;
+    u64 sbo_capacity;
+    u64 sbo_len;
+    buffer_object_handle_t sbo;
+    pipeline_handle_t pipeline;
 
-    // Text drawing
-    u64 text_sbo_capacity;
-    u64 text_sbo_len;
-    buffer_object_handle_t text_sbo;
-    pipeline_handle_t text_pipeline;
     texture_handle_t font_texture;
     vec4 char_color;
     u32 char_size;
@@ -75,52 +60,9 @@ bool Draw_Init()
         return false;
     }
 
-    // Colored meshes pipeline
-    s_draw.colored_sbo_capacity = 2048;
-    s_draw.colored_sbo = Renderer_CreateStorageBuffer( s_draw.colored_sbo_capacity * sizeof(color_instance_t));
-    if (s_draw.colored_sbo == BUFFER_OBJECT_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create colored mesh renderer SBO");
-        return false;
-    }
-
-    pipeline_config_t colored_pipeline_config = {
-        .name = "colored-draw-renderer",
-        .vertex_shader = Renderer_LoadShader("shaders/2d_color_ssbo.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/2d_color_ssbo.frag.spv"),
-        .push_constant_size = sizeof(color_push_constant_t),
-        .vertex_stride = sizeof(simple_vertex_t),
-        .vertex_attribute_count = 1,
-        .vertex_attributes = {
-            {
-                .location = 0,
-                .format = VERTEX_FORMAT_F32X3,
-                .offset = offsetof(simple_vertex_t, position),
-            },
-        },
-        .uniform_binding_count = 1,
-        .uniform_bindings = {
-            {
-                .binding = 0,
-                .buffer_object = s_draw.vp_uniform,
-                .stage = UNIFORM_STAGE_VERTEX,
-            },
-        },
-        .alpha_blending = true,
-        .disable_depth_test = true,
-    };
-
-    s_draw.colored_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &colored_pipeline_config);
-    if (s_draw.colored_pipeline == PIPELINE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to colored mesh pipeline");
-        return false;
-    }
-
-    // Text pipeline
-    s_draw.text_sbo_capacity = 8192;
-    s_draw.text_sbo = Renderer_CreateStorageBuffer(s_draw.text_sbo_capacity * sizeof(character_instance_t));
-    if (s_draw.text_sbo == BUFFER_OBJECT_HANDLE_INVALID)
+    s_draw.sbo_capacity = 8192;
+    s_draw.sbo = Renderer_CreateStorageBuffer(s_draw.sbo_capacity * sizeof(quad_instance_t));
+    if (s_draw.sbo == BUFFER_OBJECT_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create text renderer SBO");
         return false;
@@ -142,9 +84,9 @@ bool Draw_Init()
 
     pipeline_config_t text_pipeline_config = {
         .name = "text-renderer",
-        .vertex_shader = Renderer_LoadShader("shaders/2d_text_ssbo.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/2d_text_ssbo.frag.spv"),
-        .push_constant_size = sizeof(text_push_constant_t),
+        .vertex_shader = Renderer_LoadShader("shaders/2d_ssbo.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/2d_ssbo.frag.spv"),
+        .push_constant_size = sizeof(push_constant_t),
         .vertex_stride = sizeof(textured_vertex_t),
         .vertex_attribute_count = 2,
         .vertex_attributes = {
@@ -171,8 +113,8 @@ bool Draw_Init()
         .disable_depth_test = true,
     };
 
-    s_draw.text_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &text_pipeline_config);
-    if (s_draw.text_pipeline == PIPELINE_HANDLE_INVALID)
+    s_draw.pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &text_pipeline_config);
+    if (s_draw.pipeline == PIPELINE_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create text pipeline");
         return false;
@@ -204,13 +146,34 @@ void Draw_HandleResize(u32 width, u32 height)
 
 bool Draw_Quad(u32 x, u32 y, u32 width, u32 height, vec4 color)
 {
-    color_instance_t instance = {
+    quad_instance_t quad = {
         .position = V2((f32)x + ((f32)width/2.0), (f32)y + ((f32)height/ 2.0)),
+        .character = COLORED_QUAD,
         .size = V2((f32)width, (f32)height),
-        .color = color
+        .color = color,
+        .texture = 0,
     };
-    Renderer_PushBufferObject(s_draw.colored_sbo, &instance, sizeof(instance));
-    s_draw.colored_sbo_len++;
+
+    Renderer_PushBufferObject(s_draw.sbo, &quad, sizeof(quad));
+    s_draw.sbo_len++;
+
+    return true;
+}
+
+bool Draw_TexturedQuad(u32 x, u32 y, u32 width, u32 height, vec4 color, texture_handle_t texture)
+{
+    (void)texture;
+
+    quad_instance_t quad = {
+        .position = V2((f32)x + ((f32)width/2.0), (f32)y + ((f32)height/ 2.0)),
+        .character = TEXTURED_QUAD,
+        .size = V2((f32)width, (f32)height),
+        .color = color,
+        .texture = texture,
+    };
+
+    Renderer_PushBufferObject(s_draw.sbo, &quad, sizeof(quad));
+    s_draw.sbo_len++;
 
     return true;
 }
@@ -229,15 +192,16 @@ bool Draw_Text(u32 x, u32 y, string text)
 {
     for (u32 i = 0; i < text.len; i++)
     {
-        character_instance_t character = {
+        quad_instance_t character = {
             .position = V2((f32)x + (f32)(i * s_draw.char_size) + (f32)s_draw.char_size / 2, (f32)y + (f32)s_draw.char_size),
             .character = text.str[i],
-            .size = (f32)s_draw.char_size,
+            .size = V2((f32)s_draw.char_size, (f32)s_draw.char_size * 2),
             .color = s_draw.char_color,
+            .texture = s_draw.font_texture,
         };
 
-        Renderer_PushBufferObject(s_draw.text_sbo, &character, sizeof(character));
-        s_draw.text_sbo_len++;
+        Renderer_PushBufferObject(s_draw.sbo, &character, sizeof(character));
+        s_draw.sbo_len++;
     }
 
     return true;
@@ -245,35 +209,21 @@ bool Draw_Text(u32 x, u32 y, string text)
 
 void Draw_BeginFrame()
 {
-    Renderer_ClearBufferObject(s_draw.colored_sbo);
-    Renderer_ClearBufferObject(s_draw.text_sbo);
+    Renderer_ClearBufferObject(s_draw.sbo);
 
-    s_draw.colored_sbo_len = 0;
-    s_draw.text_sbo_len = 0;
+    s_draw.sbo_len = 0;
 }
 
 void Draw_EndFrame()
 {
-    if (s_draw.colored_sbo_len)
+    if (s_draw.sbo_len)
     {
-        color_push_constant_t color_push_constant = {};
-        Renderer_DrawMeshInstanced(SWAPCHAIN_PASS_HANDLE,
-            s_draw.colored_pipeline,
-            &color_push_constant,
-            s_draw.colored_sbo,
-            s_draw.colored_sbo_len,
-            s_draw.quad_mesh);
-    }
+        push_constant_t push_constant = {};
 
-    if (s_draw.text_sbo_len)
-    {
-        text_push_constant_t text_push_constant = {
-            .texture = s_draw.font_texture
-        };
-        Renderer_DrawMeshInstanced(SWAPCHAIN_PASS_HANDLE, s_draw.text_pipeline,
-            &text_push_constant,
-            s_draw.text_sbo,
-            s_draw.text_sbo_len,
+        Renderer_DrawMeshInstanced(SWAPCHAIN_PASS_HANDLE, s_draw.pipeline,
+            &push_constant,
+            s_draw.sbo,
+            s_draw.sbo_len,
             s_draw.textured_quad_mesh);
     }
 }
