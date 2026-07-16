@@ -46,6 +46,9 @@ platform_window_t *Platform_CreateWindow(const char *title, u32 width, u32 heigh
         Log(ERROR, "Failed to create window: %s", SDL_GetError());
         return NULL;
     }
+
+    SDL_SetWindowMinimumSize(window, 640, 480);
+    SDL_SetWindowMaximumSize(window, 3840, 2160);
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
     s_window.sdl_window = window;

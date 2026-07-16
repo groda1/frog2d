@@ -9,9 +9,15 @@
 #include "platform.h"
 #include "platform_vulkan.h"
 
-#define WINDOW_CLASS_NAME  L"frog2d"
+#define WINDOW_CLASS_NAME  L"dcfs"
+#define WINDOW_STYLE       WS_OVERLAPPEDWINDOW
 #define MAX_PENDING_EVENTS 64
 #define MAX_WINDOW_TITLE   256
+
+#define WINDOW_MIN_WIDTH   640
+#define WINDOW_MIN_HEIGHT  480
+#define WINDOW_MAX_WIDTH   3840
+#define WINDOW_MAX_HEIGHT  2160
 
 struct platform_window_struct
 {
@@ -102,6 +108,22 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         push_event(&event);
         return 0;
 
+    case WM_GETMINMAXINFO:
+    {
+        MINMAXINFO *info = (MINMAXINFO *)lparam;
+
+        RECT min_rect = {0, 0, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT};
+        RECT max_rect = {0, 0, WINDOW_MAX_WIDTH, WINDOW_MAX_HEIGHT};
+        AdjustWindowRect(&min_rect, WINDOW_STYLE, FALSE);
+        AdjustWindowRect(&max_rect, WINDOW_STYLE, FALSE);
+
+        info->ptMinTrackSize.x = min_rect.right - min_rect.left;
+        info->ptMinTrackSize.y = min_rect.bottom - min_rect.top;
+        info->ptMaxTrackSize.x = max_rect.right - max_rect.left;
+        info->ptMaxTrackSize.y = max_rect.bottom - max_rect.top;
+        return 0;
+    }
+
     case WM_SIZE:
     {
         u32 width = LOWORD(lparam);
@@ -162,10 +184,8 @@ void Platform_Shutdown(void)
 
 platform_window_t *Platform_CreateWindow(const char *title, u32 width, u32 height)
 {
-    DWORD style = WS_OVERLAPPEDWINDOW;
-
     RECT rect = {0, 0, (LONG)width, (LONG)height};
-    AdjustWindowRect(&rect, style, FALSE);
+    AdjustWindowRect(&rect, WINDOW_STYLE, FALSE);
 
     int window_width = rect.right - rect.left;
     int window_height = rect.bottom - rect.top;
@@ -179,7 +199,7 @@ platform_window_t *Platform_CreateWindow(const char *title, u32 width, u32 heigh
     s_window.width = width;
     s_window.height = height;
 
-    HWND hwnd = CreateWindowExW(0, WINDOW_CLASS_NAME, title_w, style,
+    HWND hwnd = CreateWindowExW(0, WINDOW_CLASS_NAME, title_w, WINDOW_STYLE,
                                 x, y, window_width, window_height,
                                 NULL, NULL, s_instance, NULL);
     if (!hwnd)
