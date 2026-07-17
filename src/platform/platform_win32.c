@@ -63,6 +63,8 @@ static key_code_t translate_keycode(WPARAM key)
         return (key_code_t)(KEY_A + (key - 'A'));
     if (key >= '0' && key <= '9')
         return (key_code_t)(KEY_0 + (key - '0'));
+    if (key >= VK_F1 && key <= VK_F12)
+        return (key_code_t)(KEY_F1 + (key - VK_F1));
 
     // TODO Function keys!
 
