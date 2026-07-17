@@ -11,6 +11,7 @@ typedef enum
     INFO = 1,
     WARNING = 2,
     ERROR = 3,
+    CVAR = 4,
 } log_severity_t;
 
 typedef struct

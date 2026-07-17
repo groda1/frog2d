@@ -271,6 +271,9 @@ bool Game_Init(platform_window_t *window)
     };
     Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
 
+    Log(ERROR, "test error");
+    Log(WARNING, "test warn");
+
     return true;
 }
 
@@ -378,16 +381,6 @@ void Game_Tick(void)
     quad_push_constant.texture = g_game.cube_render_texture;
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
                       g_game.quad_mesh);
-
-    Draw_SetTextSize(64);
-    Draw_Text(800, 512, string_lit("test 123 !# <foobar>"));
-    Draw_Text(800, 440, string_lit("WTF!!!!"));
-    Draw_SetTextSize(16);
-
-    /* draw order test: quad under text, textured quad over text */
-    Draw_Quad(80, 200, 300, 60, V4(0.8, 0.2, 0.2, 1.0));
-    Draw_Text(90, 220, string_lit("text over quad"));
-    Draw_TexturedQuad(300, 180, 100, 100, V4(1.0, 1.0, 1.0, 0.8), g_game.quad_texture);
 
     Engine_EndFrame();
 }

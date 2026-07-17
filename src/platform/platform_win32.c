@@ -70,20 +70,22 @@ static key_code_t translate_keycode(WPARAM key)
 
     switch (key)
     {
-    case VK_ESCAPE:  return KEY_ESCAPE;
-    case VK_SPACE:   return KEY_SPACE;
-    case VK_RETURN:  return KEY_RETURN;
-    case VK_TAB:     return KEY_TAB;
-    case VK_BACK:    return KEY_BACKSPACE;
-    case VK_LEFT:    return KEY_LEFT;
-    case VK_RIGHT:   return KEY_RIGHT;
-    case VK_UP:      return KEY_UP;
-    case VK_DOWN:    return KEY_DOWN;
-    // TODO distinguish left/right modifiers via the lparam extended bit
-    case VK_SHIFT:   return KEY_LSHIFT;
-    case VK_CONTROL: return KEY_LCTRL;
-    case VK_MENU:    return KEY_LALT;
-    default:         return KEY_UNKNOWN;
+        case VK_ESCAPE:  return KEY_ESCAPE;
+        case VK_SPACE:   return KEY_SPACE;
+        case VK_RETURN:  return KEY_RETURN;
+        case VK_TAB:     return KEY_TAB;
+        case VK_BACK:    return KEY_BACKSPACE;
+        case VK_LEFT:    return KEY_LEFT;
+        case VK_RIGHT:   return KEY_RIGHT;
+        case VK_UP:      return KEY_UP;
+        case VK_DOWN:    return KEY_DOWN;
+        // TODO distinguish left/right modifiers via the lparam extended bit
+        case VK_SHIFT:   return KEY_LSHIFT;
+        case VK_CONTROL: return KEY_LCTRL;
+        case VK_MENU:    return KEY_LALT;
+        case VK_PRIOR:   return KEY_PGUP;
+        case VK_NEXT:    return KEY_PGDN;
+        default:         return KEY_UNKNOWN;
     }
 }
 

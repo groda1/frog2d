@@ -89,19 +89,21 @@ static key_code_t translate_keycode(SDL_Keycode key)
 
     switch (key)
     {
-    case SDLK_ESCAPE:    return KEY_ESCAPE;
-    case SDLK_SPACE:     return KEY_SPACE;
-    case SDLK_RETURN:    return KEY_RETURN;
-    case SDLK_TAB:       return KEY_TAB;
-    case SDLK_BACKSPACE: return KEY_BACKSPACE;
-    case SDLK_LEFT:      return KEY_LEFT;
-    case SDLK_RIGHT:     return KEY_RIGHT;
-    case SDLK_UP:        return KEY_UP;
-    case SDLK_DOWN:      return KEY_DOWN;
-    case SDLK_LSHIFT:    return KEY_LSHIFT;
-    case SDLK_LCTRL:     return KEY_LCTRL;
-    case SDLK_LALT:      return KEY_LALT;
-    default:             return KEY_UNKNOWN;
+        case SDLK_ESCAPE:    return KEY_ESCAPE;
+        case SDLK_SPACE:     return KEY_SPACE;
+        case SDLK_RETURN:    return KEY_RETURN;
+        case SDLK_TAB:       return KEY_TAB;
+        case SDLK_BACKSPACE: return KEY_BACKSPACE;
+        case SDLK_LEFT:      return KEY_LEFT;
+        case SDLK_RIGHT:     return KEY_RIGHT;
+        case SDLK_UP:        return KEY_UP;
+        case SDLK_DOWN:      return KEY_DOWN;
+        case SDLK_LSHIFT:    return KEY_LSHIFT;
+        case SDLK_LCTRL:     return KEY_LCTRL;
+        case SDLK_LALT:      return KEY_LALT;
+        case SDLK_PAGEUP:    return KEY_PGUP;
+        case SDLK_PAGEDOWN:  return KEY_PGDN;
+        default:             return KEY_UNKNOWN;
     }
 }
 

@@ -3,6 +3,7 @@ BasedOnStyle: LLVM
 IndentWidth: 4
 ContinuationIndentWidth: 4
 BreakBeforeBraces: Allman
+IndentCaseLabels: true
 ColumnLimit: 120
 AllowShortBlocksOnASingleLine: false
 AlignAfterOpenBracket: Align

@@ -34,6 +34,9 @@ typedef enum
     KEY_LCTRL,
     KEY_LALT,
 
+    KEY_PGUP,
+    KEY_PGDN,
+
     KEY_COUNT,
 } key_code_t;
 

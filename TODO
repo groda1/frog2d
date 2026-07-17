@@ -1,5 +1,4 @@
 
-- image render target
 - console
 - sort draw commands by pipeline to minimize rebinds
 - investigate ASAN with arena. How to intercept and so on

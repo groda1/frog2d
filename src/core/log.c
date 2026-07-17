@@ -5,7 +5,7 @@
 #include "log.h"
 
 #define LOG_CAPACITY 8192
-#define MAX_ENTRY_LENGTH 80
+#define MAX_ENTRY_LENGTH 256
 
 static log_t *s_logger = NULL;
 
@@ -102,13 +102,13 @@ u64 Log_Count()
 log_entry_t *Log_Get(u64 index)
 {
     if (index >= Log_Count())
-        return NULL;
+       return NULL;
 
-    u64 i = s_logger->head + index;
+    i64 i = s_logger->tail - index - 1;
 
-    if (i >= s_logger->capacity)
+    if (i < 0)
     {
-        i -= s_logger->capacity;
+        i += s_logger->capacity;
     }
 
     return &s_logger->entries[i];
