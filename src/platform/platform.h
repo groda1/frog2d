@@ -16,6 +16,9 @@ typedef enum
 
     KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,
 
+    KEY_F1, KEY_F2, KEY_F3, KEY_F4, KET_F5, KEY_F6, KEY_F7, KEY_F8,
+    KEY_F9, KEY_F10, KEY_F11, KEY_F12,
+
     KEY_ESCAPE,
     KEY_SPACE,
     KEY_RETURN,

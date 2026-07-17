@@ -1,4 +1,5 @@
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_video.h>
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_error.h>
@@ -83,6 +84,8 @@ static key_code_t translate_keycode(SDL_Keycode key)
         return (key_code_t)(KEY_A + (key - SDLK_A));
     if (key >= SDLK_0 && key <= SDLK_9)
         return (key_code_t)(KEY_0 + (key - SDLK_0));
+    if (key >= SDLK_F1 && key <= SDLK_F12)
+        return (key_code_t)(KEY_F1 + (key - SDLK_F1));
 
     switch (key)
     {

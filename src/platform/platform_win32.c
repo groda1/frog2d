@@ -64,6 +64,8 @@ static key_code_t translate_keycode(WPARAM key)
     if (key >= '0' && key <= '9')
         return (key_code_t)(KEY_0 + (key - '0'));
 
+    // TODO Function keys!
+
     switch (key)
     {
     case VK_ESCAPE:  return KEY_ESCAPE;

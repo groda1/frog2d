@@ -281,12 +281,13 @@ void Game_Destroy(void)
 
 void Game_HandleKeyDown(key_code_t key)
 {
-    (void)key;
+    Log(DEBUG, "handle key: %u", key);
+    Engine_HandleKeyDown(key);
 }
 
 void Game_HandleKeyUp(key_code_t key)
 {
-    (void)key;
+    Engine_HandleKeyUp(key);
 }
 
 void Game_HandleResize(u32 width, u32 height)

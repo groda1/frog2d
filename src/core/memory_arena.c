@@ -166,3 +166,13 @@ void MemoryArena_Print(arena_t *arena)
         current = current->prev;
     }
 }
+
+scratch_t Scratch_Begin(arena_t *arena)
+{
+    u64 pos = MemoryArena_Pos(arena);
+    return (scratch_t){.arena = arena, .pos = pos};
+}
+void Scratch_End(scratch_t scratch)
+{
+    MemoryArena_PopTo(scratch.arena, scratch.pos);
+}

@@ -7,7 +7,7 @@
 bool Console_Init();
 void Console_Destroy();
 
-void Console_Update(u32 delta_time);
+void Console_Update(f32 delta_time);
 void Console_Draw();
 
 key_handle_result_t Console_HandleKeyDown(key_code_t key);

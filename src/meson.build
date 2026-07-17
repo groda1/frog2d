@@ -14,8 +14,7 @@ core_inc = include_directories(
 platform_inc = include_directories('platform')
 vulkan_inc = include_directories('vulkan')
 engine_inc = include_directories('engine')
-# engine-private headers; deliberately NOT given to game_lib so internal
-# types (gpu handles) stay unreachable from game code
+# engine-private headers; not visible to game_lib
 engine_internal_inc = include_directories('engine/internal')
 game_inc = include_directories('game')
 stb_inc = include_directories('third_party/stb')
