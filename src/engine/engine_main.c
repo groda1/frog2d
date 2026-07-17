@@ -136,18 +136,16 @@ f32 Engine_BeginFrame(void)
 
     Console_Update(delta_time);
 
-    draw_version_label();
-    draw_stats();
-
-    Console_Draw();
-
-
-
     return delta_time;
 }
 
 void Engine_EndFrame(void)
 {
+    draw_version_label();
+    draw_stats();
+
+    Console_Draw();
+
     Draw_EndFrame();
 
     VulkanRenderer_EndFrame(); // Needs to be last

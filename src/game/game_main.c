@@ -271,9 +271,6 @@ bool Game_Init(platform_window_t *window)
     };
     Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
 
-    Log(ERROR, "test error");
-    Log(WARNING, "test warn");
-
     return true;
 }
 

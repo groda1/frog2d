@@ -29,8 +29,6 @@
 
 #define SCROLLBAR_WIDTH 16
 
-static void toggle_console();
-
 typedef struct
 {
     bool active;
@@ -41,6 +39,17 @@ typedef struct
     u64 line_scroll_updated_at_log_count;
 
 } console_t;
+
+typedef struct
+{
+    u32 width;
+    u32 height;
+    u32 bottom;
+    u32 lines;
+} console_layout_t;
+
+static void toggle_console();
+static console_layout_t layout();
 
 static console_t s_console = {};
 
@@ -72,6 +81,8 @@ void Console_Update(f32 delta_time)
     if (s_console.active && s_console.line_scroll)
     {
         u64 log_count = Log_Count();
+        // If log count has changed we need to adjust the line scroll or else the scroll wont
+        // be fixed in place.
         if (log_count > s_console.line_scroll_updated_at_log_count)
         {
             s_console.line_scroll += log_count - s_console.line_scroll_updated_at_log_count;
@@ -82,31 +93,28 @@ void Console_Update(f32 delta_time)
 
 void Console_Draw()
 {
-    if (s_console.window_scroll > 0.0f)
+    if (s_console.window_scroll <= 0.0f)
+        return;
+
+    console_layout_t l = layout();
+    u64 log_count = Log_Count();
+
+    // Draw console bg
+    Draw_Quad(0, l.bottom, l.width, l.height, COLOR_BG);
+
+    if (log_count > 0)
     {
-        window_extent_t extent = Renderer_GetWindowExtent();
-
-        u32 console_height = (extent.height / 4) * 3;
-        u32 console_offset = extent.height - console_height;
-        u32 current_scroll = (u32)lerp((f32)console_height, smoothstep(s_console.window_scroll), 0.0f);
-        u32 console_lines = (console_height / CONSOLE_TEXT_HEIGHT) - 1;
-        u64 log_count = Log_Count();
-
-        // Draw console bg
-        Draw_Quad(0, console_offset + current_scroll, extent.width, console_height, COLOR_BG);
-
         // Draw scrollbar
-        u32 scrollbar_height =
-            (ClampTop((f32)console_lines / (f32)log_count, 1.0f)) * (console_lines * CONSOLE_TEXT_HEIGHT);
-        u32 scrollbar_offset =
-            ClampBot(0, ((f32)s_console.line_scroll / (f32)log_count) * (console_lines * CONSOLE_TEXT_HEIGHT));
-        Draw_Quad(extent.width - SCROLLBAR_WIDTH - 8,
-                  console_offset + current_scroll + CONSOLE_TEXT_HEIGHT + scrollbar_offset, SCROLLBAR_WIDTH,
-                  scrollbar_height, COLOR_BG_SCROLLBAR);
+        u32 track = l.lines * CONSOLE_TEXT_HEIGHT;
+        u32 scrollbar_height = track * Min(l.lines, log_count) / log_count;
+        u32 scrollbar_offset = track * (u64)s_console.line_scroll / log_count;
+        Draw_Quad(l.width - SCROLLBAR_WIDTH - 8, l.bottom + CONSOLE_TEXT_HEIGHT + scrollbar_offset,
+                  SCROLLBAR_WIDTH, scrollbar_height, COLOR_BG_SCROLLBAR);
 
         // Draw console lines
         Draw_SetTextSize(CONSOLE_TEXT_WIDTH);
-        for (u32 i = 0; i < Min(console_lines, log_count); i++)
+        u64 line_count = Min(l.lines, log_count - (u64)s_console.line_scroll);
+        for (u32 i = 0; i < line_count; i++)
         {
             u64 log_index = i + s_console.line_scroll;
 
@@ -142,14 +150,18 @@ void Console_Draw()
                     prefix_color = COLOR_TEXT_CVAR;
                     break;
                 default:
+                    prefix = string_lit("[unknown]");
+                    prefix_color = COLOR_TEXT_ERROR;
             }
 
             Draw_SetTextColor(prefix_color);
-            Draw_Text(X_OFFSET, console_offset + current_scroll + ((i + 1) * CONSOLE_TEXT_HEIGHT), prefix);
+            Draw_Text(X_OFFSET, l.bottom + ((i + 1) * CONSOLE_TEXT_HEIGHT), prefix);
             Draw_SetTextColor(COLOR_TEXT);
-            Draw_Text(X_OFFSET + 152, console_offset + current_scroll + ((i + 1) * CONSOLE_TEXT_HEIGHT), log->text);
+            Draw_Text(X_OFFSET + 152, l.bottom + ((i + 1) * CONSOLE_TEXT_HEIGHT), log->text);
         }
     }
+
+    // TODO draw input prompt
 }
 
 key_handle_result_t Console_HandleKeyDown(key_code_t key)
@@ -166,26 +178,25 @@ key_handle_result_t Console_HandleKeyDown(key_code_t key)
         {
             case KEY_PGUP:
             {
-                window_extent_t extent = Renderer_GetWindowExtent();
-
-                u32 console_height = (extent.height / 4) * 3;
-                u32 console_lines = (console_height / CONSOLE_TEXT_HEIGHT) - 1;
-
+                console_layout_t l = layout();
                 i64 log_count = Log_Count();
 
                 s_console.line_scroll += SCROLL_LINES;
-                if ((s_console.line_scroll + console_lines) > (i64)log_count)
-                    s_console.line_scroll = ClampBot(0, log_count - console_lines);
+                if ((s_console.line_scroll + l.lines) > log_count)
+                    s_console.line_scroll = ClampBot(0, log_count - l.lines);
                 s_console.line_scroll_updated_at_log_count = log_count;
-                break;
+
+                return KEY_EVENT_CONSUMED;
             }
             case KEY_PGDN:
             {
+                i64 log_count = Log_Count();
                 s_console.line_scroll = ClampBot(0, s_console.line_scroll - SCROLL_LINES);
-                break;
+                s_console.line_scroll_updated_at_log_count = log_count;
+
+                return KEY_EVENT_CONSUMED;
             }
             default: break;
-
         }
     }
 
@@ -199,7 +210,21 @@ key_handle_result_t Console_HandleKeyUp(AttributeMaybeUnused key_code_t key)
 
 static void toggle_console()
 {
-    Log(DEBUG, "toggle console");
     s_console.active = !s_console.active;
     s_console.line_scroll = 0;
+}
+
+static console_layout_t layout()
+{
+    window_extent_t extent = Renderer_GetWindowExtent();
+
+    console_layout_t l;
+    l.width = extent.width;
+    l.height = (extent.height / 4) * 3;
+    l.lines = (l.height / CONSOLE_TEXT_HEIGHT) - 1;
+
+    u32 visible = (u32)(smoothstep(s_console.window_scroll) * (f32)l.height);
+    l.bottom = extent.height - visible;
+
+    return l;
 }

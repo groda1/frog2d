@@ -17,6 +17,7 @@ static const char *const severity_map[] =
         [INFO] = "INFO",
         [WARNING] = "WARNING",
         [ERROR] = "ERROR",
+        [CVAR] = "CVAR",
 };
 
 void Log_Init(void)
