@@ -69,8 +69,8 @@ fail:
 
 void Engine_Destroy(void)
 {
-    VulkanRenderer_Destroy();
     Draw_Destroy();
+    VulkanRenderer_Destroy();
 
     MemoryArena_Print(s_engine.arena);
     MemoryArena_Destroy(s_engine.arena);

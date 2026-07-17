@@ -11,6 +11,8 @@
 #define CARET_BLINK_SPEED   1.5f
 #define SCROLL_LINES        15
 
+#define CONSOLE_TEXT_SIZE   16
+
 static void toggle_console();
 
 typedef struct
@@ -61,7 +63,16 @@ void Console_Draw()
 
         u32 current_scroll = (u32)lerp((f32)console_height, smoothstep(s_console.scroll), 0.0f);
 
+
         Draw_Quad(0, console_offset + current_scroll, extent.width, console_height, V4(0.0f, 0.0f, 0.0f, 0.9f));
+
+        u32 console_lines = (console_height / (CONSOLE_TEXT_SIZE * 2)) - 1;
+
+        for (u32 i = 0; i < console_lines; i++)
+        {
+            //Log_Get(u64 index)
+            //
+        }
     }
 }
 
