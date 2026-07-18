@@ -8,4 +8,7 @@
 /* monotonic clock */
 u64 OS_TimeNowNs(void);
 
+/* sleeps at least duration_ns, actual resolution is platform dependent */
+void OS_SleepNs(u64 duration_ns);
+
 #endif

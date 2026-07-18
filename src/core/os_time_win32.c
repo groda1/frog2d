@@ -20,3 +20,8 @@ u64 OS_TimeNowNs(void)
     return (ticks / frequency) * NS_PER_SECOND
         + (ticks % frequency) * NS_PER_SECOND / frequency;
 }
+
+void OS_SleepNs(u64 duration_ns)
+{
+    Sleep((DWORD)(duration_ns / 1000000ull));
+}

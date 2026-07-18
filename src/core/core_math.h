@@ -22,4 +22,7 @@ typedef HMM_Quat quat;
 inline f32 smoothstep(f32 t) { return t * t * (3.0f - 2.0f * t); }
 inline f32 smootherstep(f32 t) { return t * t * t * (t * (6 * t - 15) + 10); }
 
+inline i32 round_i32(f32 x) { return (i32)(x + (x >= 0.0f ? 0.5f : -0.5f)); }
+inline u32 round_u32(f32 x) { return (u32)(x + 0.5f); }
+
 #endif

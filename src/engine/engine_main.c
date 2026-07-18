@@ -16,10 +16,14 @@
 #define MAX_FRAMETIME_SAMPLES   512
 #define SAMPLE_WINDOW_S         0.2f
 
+#define FPS_LIMIT               240         // 0 = uncapped
+
 typedef struct
 {
     arena_t *arena;
 
+    u64 last_time_ns;
+    u64 next_frame_ns;
 
     // stats
     f32 frametime_samples[MAX_FRAMETIME_SAMPLES];
@@ -41,6 +45,7 @@ static void draw_stats();
 bool Engine_Init(platform_window_t *window)
 {
     s_engine.arena = MemoryArena_Create("engine-arena");
+    s_engine.last_time_ns = OS_TimeNowNs();
 
     if (!VulkanRenderer_Init(s_engine.arena, window))
         goto fail;
@@ -106,14 +111,22 @@ f32 Engine_BeginFrame(void)
 {
     engine_t *engine = &s_engine;
 
-    static u64 last_time_ns;
-
     u64 now_ns = OS_TimeNowNs();
-    if (last_time_ns == 0)
-        last_time_ns = now_ns;
+    if (FPS_LIMIT > 0)
+    {
+        if (now_ns < engine->next_frame_ns)
+        {
+            OS_SleepNs(engine->next_frame_ns - now_ns);
+            now_ns = OS_TimeNowNs();
+        }
 
-    f32 delta_time = (f32)(now_ns - last_time_ns) / (f32)NS_PER_SECOND;
-    last_time_ns = now_ns;
+        engine->next_frame_ns += NS_PER_SECOND / FPS_LIMIT;
+        if (engine->next_frame_ns < now_ns)
+            engine->next_frame_ns = now_ns;
+    }
+
+    f32 delta_time = (f32)(now_ns - engine->last_time_ns) / (f32)NS_PER_SECOND;
+    engine->last_time_ns = now_ns;
 
     // Stats
     engine->frametime_samples[engine->frametime_sample_i++] = delta_time;
@@ -125,7 +138,7 @@ f32 Engine_BeginFrame(void)
     if (engine->frametime_sum > SAMPLE_WINDOW_S)
     {
         engine->avg_frametime = engine->frametime_sum / engine->frametime_sum_count;
-        engine->fps = (u32)(1.0f / (engine->avg_frametime));
+        engine->fps = round_u32(1.0f / engine->avg_frametime);
 
         engine->frametime_sum = 0.0f;
         engine->frametime_sum_count = 0;
