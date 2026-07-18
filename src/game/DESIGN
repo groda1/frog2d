@@ -1,0 +1,299 @@
+DCFS DESIGN
+===========
+
+Living document. Records what we have discussed and decided, and what is
+still open. Update when decisions are made or revisited.
+
+
+Vision
+------
+
+A traditional turn-based roguelike, heavily influenced by DCSS.
+
+Graphics: semi-topdown 3d perspective, 90s aesthetic — low poly, flat
+shading, simple low-res textures (Alone in the Dark, 1992).
+
+Online: every game is single player, but played against a server.
+Community features are a core goal: spectating other players' games,
+tournaments, leaderboards. Cheating must be impossible by construction:
+the server owns all game state and the client only ever sees what the
+server has told it. A client can at most know what a human spectator
+could know.
+
+Networking is NOT implemented first. But the code is structured around
+it from day one: running locally means running a local server inside the
+game process that talks to the client by passing messages directly
+instead of through a socket.
+
+
+DECIDED: client / server / protocol split
+-----------------------------------------
+
+    src/game/
+        protocol/    message definitions, shared ids/enums, ser/deser
+        server/      authoritative simulation (headless)
+        client/      presentation: rendering, input, UI, animation
+        game_main.c  local bootstrap: wires client + local server
+
+Layering, enforced by meson include_directories (same mechanism that
+hides vulkan from game_lib today):
+
+    protocol -> core
+    server   -> core, protocol          (NO engine, NO renderer headers)
+    client   -> core, protocol, engine
+
+The server library not being able to even include a renderer header is
+the moat. It also means a standalone headless server binary later is
+just: core + protocol + server + a network main.
+
+The server is the game. Dungeon generation, the turn scheduler, AI,
+FOV, combat resolution, item logic, RNG — all server, and the server
+is always the authority. The client folds the server's message stream
+into its own view of the world, draws it, and predicts ahead of the
+server where it can (see prediction section) — but it only ever works
+from information the server has already sent it.
+
+"Common" code is deliberately small: protocol messages, shared ids
+(terrain/monster/item types), static display-data tables (id ->
+name/model/color — public knowledge, nothing hidden in them), and
+pure rule predicates needed for prediction (is this terrain walkable,
+...) that operate only on visible state — shared so client prediction
+and server resolution cannot drift. Nothing beyond that: sharing
+logic that touches non-visible state is exactly how hidden-state
+leaks happen.
+
+
+DECIDED: message flow
+---------------------
+
+Client -> server: commands (player intent). Discrete and small:
+move dir, attack, use item, descend stairs, ... Turn-based, so low
+rate and no timing sensitivity.
+
+Server -> client: two kinds.
+
+  - snapshot: complete visible-state dump. Sent on game start, and
+    later on reconnect and spectator join.
+  - events: ordered incremental stream. entity moved / took damage /
+    died, cell became visible, stat change, ...
+
+Events are semantic game facts, never text and never raw state blobs:
+"entity E hit you for 3". The client renders the animation AND
+composes the message-log line from the same event. The server never
+sends anything the client can derive itself.
+
+The client's authoritative view is a pure function of (snapshot +
+events); prediction is an overlay on top of it that server events
+confirm or correct, never a second source of truth. The pure-function
+property gives us, for free:
+
+  - spectating  = attach a second consumer to the same event stream
+  - replays     = record the stream to disk, play it back
+  - reconnect   = snapshot + resume stream
+
+Turn model: DCSS-style energy system, server-side. The server is
+reactive: it waits for a player command, then advances the world until
+the player can act again, emitting events in order. No real-time tick.
+The server never waits for client animation; the client buffers events
+and plays them at its own pace (and can fast-forward when the queue is
+deep, like DCSS does).
+
+Hidden information: FOV is computed server-side; the client is only
+sent cells and entities the player can currently see. Map memory
+("I've seen this corridor before") is tracked per-player on the server
+and sent as part of snapshot/events, so the client stays trivially dumb
+and reconnect/spectate get correct memory for free.
+
+
+DECIDED: local server, same thread
+----------------------------------
+
+Locally the server runs in-process on the main thread, pumped once per
+frame: drain pending commands, run the simulation, emit events. Turn-
+based simulation work is bursty and cheap, so this is fine, and it
+keeps debugging deterministic and stack traces whole. Dungeon gen may
+hitch a frame; acceptable for now.
+
+Because client and server only talk through the transport, moving the
+server to a thread or another machine later changes neither client nor
+server code — only which transport is plugged in.
+
+
+DECIDED: structs across the boundary, serialization only at the edge
+--------------------------------------------------------------------
+
+Messages are defined in protocol/ as plain C structs tagged by a
+message type enum. Client and server always produce and consume these
+structs directly. Serialization/deserialization is the network
+layer's job alone: the future socket transport converts struct <->
+bytes at the edge. The local in-process server passes structs
+straight through and never runs any ser/deser.
+
+The constraint this puts on message structs so the network layer can
+be added later without touching them: flat POD, fixed layout, counted
+inline arrays for variable-length content (inventory listings, ...),
+and NEVER pointers — not into server state, not into client state.
+A message is self-contained; receivers copy out what they keep.
+
+Protocol carries a version number from day one. Single-digit cost,
+saves grief the moment a real server exists.
+
+
+DECIDED: client-side prediction (deliberate departure from DCSS)
+----------------------------------------------------------------
+
+DCSS online feels unresponsive; we will not copy that. The client
+predicts whatever it can from knowledge it legitimately has, so input
+feels instant even when the server is remote:
+
+  - movement: the client knows the terrain it has seen and the
+    entities it can see, so a legal-looking move starts instantly
+    (step + animation) without waiting for the server.
+  - inventory: contents are part of the player's knowledge and the
+    server keeps the client's copy current, so opening and browsing
+    it is pure client-side UI — no round trip at all. Only acting
+    (use / drop / wield) sends a command.
+
+The server stays authoritative. Commands carry a sequence number and
+authoritative events reference the command that caused them, so the
+client verifies each prediction against the server's resolution and
+corrects (snaps) when it guessed wrong — e.g. the move was blocked by
+something invisible.
+
+Prediction changes nothing for anti-cheat: it runs only on
+information the server already sent. Rules that prediction needs must
+match the server exactly, which is why they live as shared pure
+predicates in protocol/ (see layering section).
+
+v1 prediction scope (decided): movement, inventory browsing, and
+simple interactions (open door, pick up). Reconciliation policy on
+misprediction (hard snap vs short corrective animation) gets decided
+when it first happens in practice.
+
+Prediction depth is hard-limited to ONE unacknowledged command
+(decided). Deeper prediction is dishonest in a roguelike — after our
+move the world acts, and the client cannot predict monsters, so a
+second predicted move would run on state known to be stale — and it
+would require rollback/re-simulate machinery. Depth 1 keeps
+reconciliation binary: confirmed or snapped, never re-simulated.
+Input arriving while a command is unacknowledged is queued
+un-predicted (so held-key movement stays continuous, rendered at
+authoritative pace); where that queue lives (client vs pipelined to
+server) is decided when networking is real.
+
+Spectators require nothing special from the client (decided): a
+spectator is a normal client with input disabled. The client already
+has to handle events not caused by any local command (most of the
+stream is the world acting on its own), and prediction/reconciliation
+only trigger on local input — so with no input both are naturally
+dormant. Same client code, same event handling.
+
+
+DECIDED: RNG and determinism
+----------------------------
+
+One game RNG, server-side, seeded per game. Enables seeded tournament
+races (same dungeon for every entrant). The client may use its own
+cosmetic RNG (idle wobble, particles) but it never touches game state.
+
+Replays are event-stream based, not input-replay based — robust across
+game-balance changes, since no simulation is re-run.
+
+
+MILESTONE 0 (done): grid sandbox for camera/look/feel
+-----------------------------------------------------
+
+Pre-split scratch code, all in game_main.c: a checkered tile grid and
+a player cube stepping tile-to-tile (held keys repeat, 8-dir), camera
+following at a semi-topdown pitch. Tunables are defines at the top of
+game_main.c (grid size, tile gap/colors, move step time, camera
+pitch/distance/fov/follow speed). This exists to lock in the look and
+feel before the client/server split; it dissolves into client/ when
+milestone 1 starts.
+
+
+MILESTONE 1 (agreed): one room, walking cube
+--------------------------------------------
+
+Protocol message structs + the local message pump + a server that
+generates one room and resolves moves + the client walking a cube
+around it. Proposed shape, hack on it:
+
+    src/game/protocol/   protocol.h  command/event structs, ids
+                         rules.c/h   shared pure predicates
+    src/game/server/     server.h    Server_* API
+    src/game/client/     client.h    Client_* API
+    src/game/game_main.c local pump
+
+meson: protocol_lib (core only), server_lib (core + protocol only —
+this is the enforced moat), client + game_main stay in game_lib
+(core, platform, engine, protocol).
+
+Local transport = no abstraction at all. game_main pumps once per
+frame:
+
+    Client_Update()            input -> predicts -> queues command_t
+    Client_PollCommands()      drain client outbox
+    Server_HandleCommand()     resolve, world advances
+    Server_PollEvents()        drain server outbox
+    Client_HandleEvent()       fold into view, reconcile predictions
+
+A future network build replaces the pump with socket code on each
+side (and that is where ser/deser lives); client and server code are
+untouched. The symmetry lives in the message structs, not in a
+transport vtable we don't need yet.
+
+v1 messages (sketch): command_t { type, sequence, union { move {dx,
+dy} } }; event_t { type, union { snapshot { extents, terrain cells,
+entities, player id }, entity_moved { id, from, to, caused_by_seq },
+command_rejected { sequence, reason } } }. Fixed-cap inline arrays
+per the struct rules. Terrain/entity ids in protocol.h.
+
+
+MILESTONE 2 (agreed): monster, FOV, fog of war
+----------------------------------------------
+
+A simple monster that wanders the level, plus FOV and fog of war.
+This is the milestone where the hidden-information machinery becomes
+real: the server computes FOV and only sends visible cells; map
+memory (fog of war) is tracked server-side per player and streamed as
+"remembered" cell state. The wandering monster exercises the two
+things milestone 1 can't: the world acting without any player command
+(events not caused by the local client), and entities entering/
+leaving the visible set (the client learns of the monster only when
+it walks into view, and the server stops telling the client about it
+the moment it leaves).
+
+
+OPEN QUESTIONS
+--------------
+
+- Session model: server should think in terms of N attached clients
+  per game (1 player + N spectators) even though locally N=1. When do
+  we introduce the session/client-slot concept on the server side?
+
+- Client-side smoothing: turn-based state jumps tile-to-tile; the 3d
+  view wants short movement/attack animations. Client concern only,
+  but affects how events are timestamped/grouped (e.g. "these events
+  happened in one world turn" grouping for parallel animation).
+
+- Model/animation format (eventually): leaning OBJ for static meshes
+  and Quake-style keyframe vertex animation for movement — one OBJ
+  per keyframe (Blender's OBJ export can dump animation as a numbered
+  sequence), engine lerps (or snaps, for the chunky 90s look) between
+  frames; two vertex buffers + mix factor in the push constant.
+  Possibly baked into a small binary blob at build time. Skeletal/
+  glTF deliberately avoided: heavy machinery and wrong for the
+  aesthetic.
+
+- Replay format: with ser/deser living in the network layer, a replay
+  is most naturally the recorded network byte stream. Fine — but it
+  means replay recording is a network-layer feature, not available
+  until the socket transport exists (or the local transport gains an
+  optional record hook that runs the serializer).
+
+- Persistence: save games are server-side state dumps. Format can wait
+  until there is state worth saving.
+
+- Directory name bikeshed: protocol/ vs common/. Using protocol/ until
+  someone objects.

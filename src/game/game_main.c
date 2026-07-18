@@ -1,30 +1,33 @@
 #include "HandmadeMath.h"
 #include "core.h"
 #include "core_math.h"
-#include "core_string.h"
 #include "log.h"
 
 #include "engine_main.h"
 #include "engine_types.h"
 #include "game_main.h"
 #include "mesh.h"
+#include "platform.h"
 #include "render_types.h"
 #include "renderer.h"
-#include "draw.h"
 
-/* port of the vulkrap hello_krap example: a wobbling triangle */
+/* milestone 0 sandbox: a grid and a movable cube, for tuning camera and feel */
 
-#define ROT_SPEED_DEG_PER_S      25.0f
-#define WOBBLE_SPEED             5.0f
-#define CUBE_ROT_SPEED_DEG_PER_S 40.0f
+#define GRID_WIDTH              24
+#define GRID_HEIGHT             16
+#define TILE_GAP                0.0f
+#define TILE_THICKNESS          0.3f
+#define TILE_COLOR_A            V4(0.30f, 0.32f, 0.28f, 1.0f)
+#define TILE_COLOR_B            V4(0.23f, 0.25f, 0.22f, 1.0f)
 
-#define MAX_TEXT_INSTANCES       256
+#define PLAYER_SIZE             0.7f
+#define PLAYER_COLOR            V4(0.9f, 0.5f, 0.2f, 1.0f)
+#define PLAYER_MOVE_SPEED       6.0f
 
-typedef struct
-{
-    mat4 transform;
-    f32 wobble;
-} push_constant_t;
+#define CAMERA_PITCH_DEG        55.0f
+#define CAMERA_DISTANCE         9.0f
+#define CAMERA_FOV_DEG          60.0f
+#define CAMERA_FOLLOW_SPEED     8.0f
 
 typedef struct
 {
@@ -34,89 +37,37 @@ typedef struct
 
 typedef struct
 {
-    mat4 transform;
-    vec4 color;
-    u32 texture;
-} textured_push_constant_t;
-
-typedef struct
-{
-    mesh_handle_t mesh;
-    vec3 position;
-    quat orientation;
-    f32 wobble;
-    pipeline_handle_t pipeline;
-
-    /* 3d cube rendered behind the triangle */
     mesh_handle_t cube_mesh;
-    quat cube_orientation;
-    pipeline_handle_t cube_pipeline;
+    pipeline_handle_t tile_pipeline;
+    pipeline_handle_t player_pipeline;
     buffer_object_handle_t vp_uniform;
 
-    /* textured quad between the cubes */
-    mesh_handle_t quad_mesh;
-    texture_handle_t quad_texture;
-    texture_handle_t font_texture;
-    pipeline_handle_t quad_pipeline;
-    buffer_object_handle_t vp_uniform_ortho;
+    i32 player_old_pos_x;
+    i32 player_old_pos_y;
+    i32 player_pos_x;
+    i32 player_pos_y;
+    bool player_moving;
+    f32 player_move_progress;
 
-    /* right cube rendered into a low-res image target, shown on a quad */
-    texture_handle_t cube_render_texture;
-    renderpass_handle_t cube_pass;
-    pipeline_handle_t cube_offscreen_pipeline;
-    buffer_object_handle_t vp_uniform_cube_pass;
+    vec3 player_gfx_pos;        /* world position, animated toward the tile center */
+    vec3 camera_target;     /* smoothed follow point */
 
 } game_t;
 
 static game_t g_game;
+
+static vec3 tile_center(i32 x, i32 z);
+static bool player_attempt_move(i32 new_x, i32 new_y);
 
 bool Game_Init(platform_window_t *window)
 {
     if (!Engine_Init(window))
         return false;
 
-    g_game.mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_COLORED_TRIANGLE);
-
-    window_extent_t extent = Renderer_GetWindowExtent();
-    g_game.position = V3((f32)extent.width / 2.0f, (f32)extent.height / 2.0f, 0.0f);
-    g_game.orientation = HMM_Q(0.0f, 0.0f, 0.0f, 1.0f);
-
-    pipeline_config_t pipeline_config = {
-        .vertex_shader = Renderer_LoadShader("shaders/hello_triangle.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/hello_triangle.frag.spv"),
-        .push_constant_size = sizeof(push_constant_t),
-        .vertex_stride = sizeof(colored_vertex_t),
-        .vertex_attribute_count = 2,
-        .vertex_attributes = {
-            {
-                .location = 0,
-                .format = VERTEX_FORMAT_F32X3,
-                .offset = offsetof(colored_vertex_t, position),
-            },
-            {
-                .location = 1,
-                .format = VERTEX_FORMAT_F32X3,
-                .offset = offsetof(colored_vertex_t, color),
-            },
-        },
-    };
-
-    g_game.pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &pipeline_config);
-    if (g_game.pipeline == PIPELINE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create hello triangle pipeline");
-        Engine_Destroy();
-        return false;
-    }
-
-    /* cube */
     g_game.cube_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_NORMALED_CUBE);
-    g_game.cube_orientation = HMM_Q(0.0f, 0.0f, 0.0f, 1.0f);
 
     g_game.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
                                                      UNIFORM_STAGE_VERTEX);
-
-
     if (g_game.vp_uniform == BUFFER_OBJECT_HANDLE_INVALID)
     {
         Log(ERROR, "failed to create view projection uniform");
@@ -124,9 +75,10 @@ bool Game_Init(platform_window_t *window)
         return false;
     }
 
-    pipeline_config_t cube_pipeline_config = {
-        .vertex_shader = Renderer_LoadShader("shaders/flat_color_edge.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/flat_color_edge.frag.spv"),
+    pipeline_config_t tile_pipeline_config = {
+        .name = "grid-tile",
+        .vertex_shader = Renderer_LoadShader("shaders/flat_color.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/flat_color.frag.spv"),
         .push_constant_size = sizeof(flat_push_constant_t),
         .vertex_stride = sizeof(normal_vertex_t),
         .vertex_attribute_count = 1,
@@ -147,129 +99,34 @@ bool Game_Init(platform_window_t *window)
         },
     };
 
-    g_game.cube_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &cube_pipeline_config);
-    if (g_game.cube_pipeline == PIPELINE_HANDLE_INVALID)
+    g_game.tile_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &tile_pipeline_config);
+    if (g_game.tile_pipeline == PIPELINE_HANDLE_INVALID)
     {
-        Log(ERROR, "failed to create flat color pipeline");
+        Log(ERROR, "failed to create tile pipeline");
         Engine_Destroy();
         return false;
     }
 
-    /* textured quad */
-    g_game.quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_TEXTURED_QUAD);
+    pipeline_config_t player_pipeline_config = tile_pipeline_config;
+    player_pipeline_config.name = "player";
+    player_pipeline_config.vertex_shader = Renderer_LoadShader("shaders/flat_color_edge.vert.spv");
+    player_pipeline_config.fragment_shader = Renderer_LoadShader("shaders/flat_color_edge.frag.spv");
 
-    g_game.vp_uniform_ortho = Renderer_CreateUniformBuffer(sizeof(view_projection_t), UNIFORM_STAGE_VERTEX);
-
-    sampler_handle_t sampler = Renderer_CreateSampler();
-    if (sampler == SAMPLER_HANDLE_INVALID)
+    g_game.player_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &player_pipeline_config);
+    if (g_game.player_pipeline == PIPELINE_HANDLE_INVALID)
     {
-        Log(ERROR, "failed to create sampler");
+        Log(ERROR, "failed to create player pipeline");
         Engine_Destroy();
         return false;
     }
 
-    g_game.quad_texture = Renderer_LoadTexture("resources/textures/test.png", sampler);
-    if (g_game.quad_texture == TEXTURE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to load test texture");
-        Engine_Destroy();
-        return false;
-    }
+    g_game.player_pos_x = GRID_WIDTH / 2;
+    g_game.player_pos_y = GRID_HEIGHT / 2;
+    g_game.player_old_pos_x = g_game.player_pos_x;
+    g_game.player_old_pos_y = g_game.player_pos_y;
 
-    g_game.font_texture = Renderer_LoadTexture("resources/textures/font2.png", sampler);
-    if (g_game.font_texture == TEXTURE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to load font texture");
-        Engine_Destroy();
-        return false;
-    }
-
-    pipeline_config_t quad_pipeline_config = {
-        .vertex_shader = Renderer_LoadShader("shaders/flat_textured.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/flat_textured.frag.spv"),
-        .push_constant_size = sizeof(textured_push_constant_t),
-        .vertex_stride = sizeof(textured_vertex_t),
-        .vertex_attribute_count = 2,
-        .vertex_attributes = {
-            {
-                .location = 0,
-                .format = VERTEX_FORMAT_F32X3,
-                .offset = offsetof(textured_vertex_t, position),
-            },
-            {
-                .location = 1,
-                .format = VERTEX_FORMAT_F32X2,
-                .offset = offsetof(textured_vertex_t, texture_coord),
-            },
-        },
-        .uniform_binding_count = 1,
-        .uniform_bindings = {
-            {
-                .binding = 0,
-                .buffer_object = g_game.vp_uniform_ortho,
-                .stage = UNIFORM_STAGE_VERTEX,
-            },
-        },
-        .alpha_blending = true,
-    };
-
-    g_game.quad_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &quad_pipeline_config);
-    if (g_game.quad_pipeline == PIPELINE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create flat textured pipeline");
-        Engine_Destroy();
-        return false;
-    }
-
-    /* offscreen cube: a 128x128 image target displayed on a 512x512 quad */
-    g_game.cube_render_texture = Renderer_CreateRenderTexture(128, 128, sampler);
-    if (g_game.cube_render_texture == TEXTURE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create cube render texture");
-        Engine_Destroy();
-        return false;
-    }
-
-    g_game.cube_pass = Renderer_CreateRenderPass(g_game.cube_render_texture, 0);
-    if (g_game.cube_pass == RENDERPASS_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create cube render pass");
-        Engine_Destroy();
-        return false;
-    }
-
-    g_game.vp_uniform_cube_pass = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
-                                                               UNIFORM_STAGE_VERTEX);
-    if (g_game.vp_uniform_cube_pass == BUFFER_OBJECT_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create cube pass view projection uniform");
-        Engine_Destroy();
-        return false;
-    }
-
-    view_projection_t cube_pass_vp = {
-        .view = HMM_M4D(1.0f),
-        .proj = HMM_Perspective_RH_NO(HMM_AngleDeg(60.0f), 1.0f, 0.1f, 100.0f),
-    };
-    Renderer_SetBufferObject(g_game.vp_uniform_cube_pass, &cube_pass_vp, sizeof(cube_pass_vp));
-
-    pipeline_config_t cube_offscreen_config = cube_pipeline_config;
-    cube_offscreen_config.uniform_bindings[0].buffer_object = g_game.vp_uniform_cube_pass;
-
-    g_game.cube_offscreen_pipeline = Renderer_AddPipeline(g_game.cube_pass,
-                                                          &cube_offscreen_config);
-    if (g_game.cube_offscreen_pipeline == PIPELINE_HANDLE_INVALID)
-    {
-        Log(ERROR, "failed to create offscreen cube pipeline");
-        Engine_Destroy();
-        return false;
-    }
-
-    view_projection_t vp2 = {
-        .view = HMM_M4D(1.0f),
-        .proj = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width, 0.0f, (f32)extent.height, -1.0, 1.0)
-    };
-    Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
+    g_game.player_gfx_pos = tile_center(g_game.player_pos_x, g_game.player_pos_y);
+    g_game.camera_target = g_game.player_gfx_pos;
 
     return true;
 }
@@ -281,8 +138,43 @@ void Game_Destroy(void)
 
 void Game_HandleKeyDown(key_code_t key)
 {
-    Log(DEBUG, "handle key: %u", key);
-    Engine_HandleKeyDown(key);
+    game_t *game = &g_game;
+
+    if (Engine_HandleKeyDown(key) == KEY_EVENT_CONSUMED)
+        return;
+
+    if (!game->player_moving)
+    {
+        switch (key)
+        {
+            case KEY_D:
+            case KEY_RIGHT:
+            {
+                player_attempt_move(game->player_pos_x + 1, game->player_pos_y);
+                break;
+            }
+            case KEY_A:
+            case KEY_LEFT:
+            {
+                player_attempt_move(game->player_pos_x - 1, game->player_pos_y);
+                break;
+            }
+            case KEY_W:
+            case KEY_UP:
+            {
+                player_attempt_move(game->player_pos_x, game->player_pos_y + 1);
+                break;
+            }
+            case KEY_S:
+            case KEY_DOWN:
+            {
+                player_attempt_move(game->player_pos_x, game->player_pos_y - 1);
+                break;
+            }
+            default:
+                break;
+        }
+    }
 }
 
 void Game_HandleKeyUp(key_code_t key)
@@ -293,91 +185,134 @@ void Game_HandleKeyUp(key_code_t key)
 void Game_HandleResize(u32 width, u32 height)
 {
     Engine_HandleResize(width, height);
+}
 
-    view_projection_t vp2 = {
-        .view = HMM_M4D(1.0f),
-        .proj = HMM_Orthographic_RH_NO(0.0f, (f32)width, 0.0f, (f32)height, -1.0, 1.0)
+static void update_player(f32 delta_time)
+{
+    game_t *game = &g_game;
+
+    if (game->player_moving)
+    {
+        game->player_move_progress += delta_time * PLAYER_MOVE_SPEED;
+
+        vec3 old = tile_center(game->player_old_pos_x, game->player_old_pos_y);
+        vec3 new = tile_center(game->player_pos_x, game->player_pos_y);
+
+        game->player_gfx_pos = lerp(old, smoothstep(game->player_move_progress), new);
+
+        if (game->player_move_progress >= 1.0f)
+        {
+            game->player_move_progress = 0.0f;
+            game->player_old_pos_x = game->player_pos_x;
+            game->player_old_pos_y = game->player_pos_y;
+            game->player_moving = false;
+            Log(DEBUG, "move complete");
+        }
+    }
+}
+
+static void update_camera(f32 delta_time)
+{
+    game_t *game = &g_game;
+    window_extent_t extent = Renderer_GetWindowExtent();
+
+    f32 follow = CAMERA_FOLLOW_SPEED * delta_time;
+    if (follow > 1.0f)
+        follow = 1.0f;
+    game->camera_target = HMM_LerpV3(game->camera_target, follow, game->player_gfx_pos);
+
+    f32 pitch = HMM_AngleDeg(CAMERA_PITCH_DEG + 10);
+    vec3 offset = V3(0.0f,
+                     HMM_SinF(pitch) * CAMERA_DISTANCE,
+                     HMM_CosF(pitch) * CAMERA_DISTANCE);
+    vec3 eye = HMM_AddV3(game->camera_target, offset);
+
+    view_projection_t vp = {
+        .view = HMM_LookAt_RH(eye, game->camera_target, V3(0.0f, 1.0f, 0.0f)),
+        .proj = HMM_Perspective_RH_NO(HMM_AngleDeg(CAMERA_FOV_DEG),
+                                      (f32)extent.width / (f32)extent.height,
+                                      0.1f, 100.0f),
     };
-    Renderer_SetBufferObject(g_game.vp_uniform_ortho, &vp2, sizeof(vp2));
+    Renderer_SetBufferObject(g_game.vp_uniform, &vp, sizeof(vp));
+}
 
+static void draw_grid(void)
+{
+    flat_push_constant_t push_constant;
+    mat4 scale = HMM_Scale(V3(1.0f - TILE_GAP, TILE_THICKNESS, 1.0f - TILE_GAP));
+
+    for (i32 z = 0; z < GRID_HEIGHT; z++)
+    {
+        for (i32 x = 0; x < GRID_WIDTH; x++)
+        {
+            vec3 center = tile_center(x, z);
+            center.Y = -TILE_THICKNESS / 2.0f;
+
+            push_constant.transform = HMM_MulM4(HMM_Translate(center), scale);
+            push_constant.color = ((x + z) & 1) ? TILE_COLOR_A : TILE_COLOR_B;
+            Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.tile_pipeline,
+                              &push_constant, g_game.cube_mesh);
+        }
+    }
+}
+
+static void draw_player(void)
+{
+    vec3 center = g_game.player_gfx_pos;
+    center.Y = PLAYER_SIZE / 2.0f;
+
+    flat_push_constant_t push_constant = {
+        .transform = HMM_MulM4(HMM_Translate(center),
+                               HMM_Scale(V3(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE))),
+        .color = PLAYER_COLOR,
+    };
+    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.player_pipeline,
+                      &push_constant, g_game.cube_mesh);
 }
 
 void Game_Tick(void)
 {
     f32 delta_time = Engine_BeginFrame();
 
-    window_extent_t extent = Renderer_GetWindowExtent();
+    update_player(delta_time);
+    update_camera(delta_time);
 
-    push_constant_t push_constant;
-
-    quat rotation = HMM_QFromAxisAngle_RH(V3(0.0f, 0.0f, 1.0f),
-                                          HMM_AngleDeg(-delta_time * ROT_SPEED_DEG_PER_S));
-
-    g_game.orientation = HMM_MulQ(g_game.orientation, rotation);
-    g_game.wobble += delta_time * WOBBLE_SPEED;
-    push_constant.wobble = g_game.wobble;
-    g_game.position = V3(((f32)extent.width / 2.0f) - 250, (f32)extent.height / 2.0f, 0.0f);
-
-    mat4 projection = HMM_Orthographic_RH_NO(0.0f, (f32)extent.width,
-                                             0.0f, (f32)extent.height, -1.0f, 1.0f);
-    f32 size = extent.height / 2;
-    mat4 model = HMM_MulM4(HMM_Translate(g_game.position),
-                           HMM_MulM4(HMM_QToM4(g_game.orientation),
-                                     HMM_Scale(V3(size, size, size))));
-    push_constant.transform = HMM_MulM4(projection, model);
-
-
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.pipeline, &push_constant, g_game.mesh);
-
-    /* update cube */
-    g_game.cube_orientation =
-        HMM_MulQ(g_game.cube_orientation,
-                 HMM_QFromAxisAngle_RH(V3(0.0f, 1.0f, 0.0f), HMM_AngleDeg(-delta_time * CUBE_ROT_SPEED_DEG_PER_S * 0.5)));
-    g_game.cube_orientation =
-        HMM_MulQ(g_game.cube_orientation,
-                HMM_QFromAxisAngle_RH(V3(1.0f, 0.0f, 0.0f), HMM_AngleDeg(delta_time * CUBE_ROT_SPEED_DEG_PER_S * 0.5)));
-
-    //g_game.cube_orientation = HMM_MulQ(g_game.cube_orientation, cube_rotation);
-
-    view_projection_t vp = {
-        .view = HMM_M4D(1.0f),
-        .proj = HMM_Perspective_RH_NO(HMM_AngleDeg(60.0f),
-                                      (f32)extent.width / (f32)extent.height, 0.1f, 100.0f),
-    };
-    Renderer_SetBufferObject(g_game.vp_uniform, &vp, sizeof(vp));
-
-    flat_push_constant_t cube_push_constant;
-    cube_push_constant.transform = HMM_MulM4(HMM_Translate(V3(-1.5f, 0.0f, -3.0f)), HMM_QToM4(g_game.cube_orientation));
-    cube_push_constant.color = V4(0.9f, 0.5f, 0.2f, 1.0f);
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.cube_pipeline, &cube_push_constant,
-                      g_game.cube_mesh);
-
-    /* right cube: rendered offscreen into the cube pass, centered in its view */
-    cube_push_constant.transform = HMM_MulM4(HMM_Translate(V3(0.0f, 0.0f, -2.0f)), HMM_QToM4(g_game.cube_orientation));
-    cube_push_constant.color = V4(0.5f, 0.9f, 0.2f, 1.0f);
-    Renderer_DrawMesh(g_game.cube_pass, g_game.cube_offscreen_pipeline, &cube_push_constant,
-                      g_game.cube_mesh);
-
-    /* textured quad */
-    textured_push_constant_t quad_push_constant;
-    quad_push_constant.transform = HMM_MulM4(HMM_Translate(V3(200.0f, 500.0f, 0.0f)), HMM_Scale(V3(200.0f, 200.0f, 1.0f)));
-    quad_push_constant.color = V4(1.0f, 1.0f, 1.0f, 1.0f);
-    quad_push_constant.texture = g_game.quad_texture;
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
-                      g_game.quad_mesh);
-
-    quad_push_constant.transform = HMM_MulM4(HMM_Translate(V3(100.0f, 100.0f, 0.0f)), HMM_Scale(V3(100.0f,100.0f,1.0f)));
-    quad_push_constant.color = V4(1.0f, 0.0f, 0.0f, 1.0f);
-    quad_push_constant.texture = g_game.font_texture;
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
-                      g_game.quad_mesh);
-
-    /* the offscreen cube's 128x128 target upscaled onto a 512x512 quad */
-    quad_push_constant.transform = HMM_MulM4(HMM_Translate(V3((f32)extent.width - 400.0f, 408.0f, 0.0f)), HMM_Scale(V3(1024.0f, 1024.0f, 1.0f)));
-    quad_push_constant.color = V4(1.0f, 1.0f, 1.0f, 1.0f);
-    quad_push_constant.texture = g_game.cube_render_texture;
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.quad_pipeline, &quad_push_constant,
-                      g_game.quad_mesh);
+    draw_grid();
+    draw_player();
 
     Engine_EndFrame();
+}
+
+static vec3 tile_center(i32 x, i32 y)
+{
+    return V3((f32)x + 0.5f, 0.0f, (f32)-y + 0.5f);
+}
+
+static bool player_attempt_move(i32 new_x, i32 new_y)
+{
+    game_t *game = &g_game;
+    bool moving = false;
+
+    Assert(!game->player_moving);
+
+    if (new_x != game->player_pos_x && new_x >= 0 && new_x < GRID_WIDTH)
+    {
+        //game->player_old_pos_x = game->player_pos_x;
+        game->player_pos_x = new_x;
+        moving = true;
+    }
+
+    if (new_y != game->player_pos_y && new_y >= 0 && new_y < GRID_HEIGHT)
+    {
+        //game->player_old_pos_y = game->player_pos_y;
+        game->player_pos_y = new_y;
+        moving = true;
+    }
+
+    if (moving)
+    {
+        game->player_moving = true;
+        return true;
+    }
+    return false;
 }
