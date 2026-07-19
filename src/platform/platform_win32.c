@@ -65,8 +65,8 @@ static key_code_t translate_keycode(WPARAM key)
         return (key_code_t)(KEY_0 + (key - '0'));
     if (key >= VK_F1 && key <= VK_F12)
         return (key_code_t)(KEY_F1 + (key - VK_F1));
-
-    // TODO Function keys!
+    if (key >= VK_NUMPAD1 && key <= VK_NUMPAD9)
+        return (key_code_t)(KEY_KP_1 + (key - VK_NUMPAD1));
 
     switch (key)
     {
@@ -85,6 +85,9 @@ static key_code_t translate_keycode(WPARAM key)
         case VK_MENU:    return KEY_LALT;
         case VK_PRIOR:   return KEY_PGUP;
         case VK_NEXT:    return KEY_PGDN;
+        case VK_HOME:    return KEY_HOME;
+        case VK_END:     return KEY_END;
+        case VK_NUMPAD0: return KEY_KP_0;
         default:         return KEY_UNKNOWN;
     }
 }

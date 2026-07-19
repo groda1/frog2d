@@ -196,7 +196,11 @@ key_handle_result_t Console_HandleKeyDown(key_code_t key)
 
                 return KEY_EVENT_CONSUMED;
             }
-            default: break;
+            default:
+            {
+                Log(DEBUG, "console undhandled keycode: %u", key);
+                return KEY_EVENT_CONSUMED;
+            }
         }
     }
 

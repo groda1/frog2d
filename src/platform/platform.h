@@ -5,7 +5,6 @@
 
 typedef struct platform_window_struct platform_window_t;
 
-// TODO extend as needed (function keys, keypad, mouse)
 typedef enum
 {
     KEY_UNKNOWN = 0,
@@ -18,6 +17,9 @@ typedef enum
 
     KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8,
     KEY_F9, KEY_F10, KEY_F11, KEY_F12,
+
+    KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_KP_5, KEY_KP_6,
+    KEY_KP_7, KEY_KP_8, KEY_KP_9, KEY_KP_0,
 
     KEY_ESCAPE,
     KEY_SPACE,
@@ -34,6 +36,8 @@ typedef enum
     KEY_LCTRL,
     KEY_LALT,
 
+    KEY_HOME,
+    KEY_END,
     KEY_PGUP,
     KEY_PGDN,
 

@@ -227,6 +227,31 @@ void Game_HandleKeyDown(key_code_t key)
                 player_attempt_move(game->player_pos_x, game->player_pos_y - 1);
                 break;
             }
+            case KEY_KP_7:
+            case KEY_HOME:
+            {
+                player_attempt_move(game->player_pos_x - 1, game->player_pos_y + 1);
+                break;
+            }
+            case KEY_KP_1:
+            case KEY_END:
+            {
+                player_attempt_move(game->player_pos_x - 1, game->player_pos_y - 1);
+                break;
+            }
+            case KEY_KP_9:
+            case KEY_PGUP:
+            {
+                player_attempt_move(game->player_pos_x + 1, game->player_pos_y + 1);
+                break;
+            }
+            case KEY_KP_3:
+            case KEY_PGDN:
+            {
+                player_attempt_move(game->player_pos_x + 1, game->player_pos_y - 1);
+                break;
+            }
+
             default:
                 break;
         }
@@ -416,7 +441,15 @@ static bool player_attempt_move(i32 new_x, i32 new_y)
 
     f32 rotation = game->player_gfx_rot;
 
-    if (new_x > game->player_pos_x) // east
+    if (new_x > game->player_pos_x && new_y > game->player_pos_y ) // northeast
+        rotation = 135.0f;
+    else if (new_x < game->player_pos_x && new_y > game->player_pos_y) // northwest
+        rotation = -135.0f;
+    else if (new_x > game->player_pos_x && new_y < game->player_pos_y ) // southeast
+        rotation = 45.0f;
+    else if (new_x < game->player_pos_x && new_y < game->player_pos_y ) // southwest
+        rotation = -45.0f;
+    else if (new_x > game->player_pos_x) // east
         rotation = 90.0f;
     else if (new_x < game->player_pos_x) // west
         rotation = -90.0f;

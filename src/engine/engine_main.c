@@ -44,7 +44,11 @@ static void draw_stats();
 
 bool Engine_Init(platform_window_t *window)
 {
-    s_engine.arena = MemoryArena_Create("engine-arena");
+    s_engine.arena = MemoryArena_CreateP("engine-arena",
+        (arena_params_t) {
+            .commit_size = MB(1),
+            .reserve_size = MB(8)}
+    );
     s_engine.last_time_ns = OS_TimeNowNs();
 
     if (!VulkanRenderer_Init(s_engine.arena, window))

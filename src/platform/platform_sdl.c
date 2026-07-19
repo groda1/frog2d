@@ -86,6 +86,8 @@ static key_code_t translate_keycode(SDL_Keycode key)
         return (key_code_t)(KEY_0 + (key - SDLK_0));
     if (key >= SDLK_F1 && key <= SDLK_F12)
         return (key_code_t)(KEY_F1 + (key - SDLK_F1));
+    if (key >= SDLK_KP_1 && key <= SDLK_KP_0)
+        return (key_code_t)(KEY_KP_1 + (key - SDLK_KP_1));
 
     switch (key)
     {
@@ -103,6 +105,8 @@ static key_code_t translate_keycode(SDL_Keycode key)
         case SDLK_LALT:      return KEY_LALT;
         case SDLK_PAGEUP:    return KEY_PGUP;
         case SDLK_PAGEDOWN:  return KEY_PGDN;
+        case SDLK_HOME:      return KEY_HOME;
+        case SDLK_END:       return KEY_END;
         default:             return KEY_UNKNOWN;
     }
 }

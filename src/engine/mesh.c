@@ -348,7 +348,7 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
     result = true;
 
     Log(INFO, "loaded obj '%s' in %.2f ms: %u vertices, %u indices",
-        full_path, (f64)(OS_TimeNowNs() - start_ns) / 1000000.0, vertex_count, index_count);
+        path.c_str, (f64)(OS_TimeNowNs() - start_ns) / 1000000.0, vertex_count, index_count);
 
 exit:
     Scratch_End(scratch);
