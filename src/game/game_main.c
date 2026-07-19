@@ -85,6 +85,7 @@ static void draw_grid(void);
 static void draw_player(void);
 static vec3 tile_center(i32 x, i32 y);
 static vec3 player_center(i32 x, i32 y);
+static f32  wrap_angle_deg(f32 angle);
 static bool player_attempt_move(i32 new_x, i32 new_y);
 
 bool Game_Init(platform_window_t *window)
@@ -286,14 +287,8 @@ static void update_player_move(f32 delta_time)
 
     if (game->player_anim_progress >= 1.0f)
     {
-        if (game->player_gfx_rot < -360.0f)
-            game->player_gfx_rot += 360.0f;
-        else if (game->player_gfx_rot > 360.0f)
-            game->player_gfx_rot -= 360.0f;
-
         game->player_pos_x = game->player_target_pos_x;
         game->player_pos_y = game->player_target_pos_y;
-        game->player_gfx_old_rot = game->player_gfx_rot;
         game->player_anim = PLAYER_ANIM_NONE;
         Log(DEBUG, "move complete %d,%d", game->player_pos_x, game->player_pos_y);
     }
@@ -401,6 +396,15 @@ static vec3 player_center(i32 x, i32 y)
     return V3((f32)x + 0.5f, PLAYER_SIZE / 2.0f, (f32)-y + 0.5f);
 }
 
+static inline f32 wrap_angle_deg(f32 angle)
+{
+    while (angle > 180.0f)
+        angle -= 360.0f;
+    while (angle < -180.0f)
+        angle += 360.0f;
+    return angle;
+}
+
 static bool player_attempt_move(i32 new_x, i32 new_y)
 {
     game_t *game = &g_game;
@@ -410,30 +414,20 @@ static bool player_attempt_move(i32 new_x, i32 new_y)
     game->player_anim_progress = 0.0f;
     game->player_gfx_target_pos = player_center(new_x, new_y);
 
+    f32 rotation = game->player_gfx_rot;
 
     if (new_x > game->player_pos_x) // east
-    {
-        game->player_gfx_target_rot = 90.0f;
-    }
+        rotation = 90.0f;
     else if (new_x < game->player_pos_x) // west
-    {
-        game->player_gfx_target_rot = -90.0f;
-    }
+        rotation = -90.0f;
     else if (new_y > game->player_pos_y) // north
-    {
-        game->player_gfx_target_rot = 180.0f;
-    }
+        rotation = 180.0f;
     else if (new_y < game->player_pos_y) // south
-    {
-        game->player_gfx_target_rot = 0.0f;
-    }
+        rotation = 0.0f;
 
-    if ((game->player_gfx_target_rot - game->player_gfx_rot) > 180.0f)
-        game->player_gfx_target_rot -= 360.0f;
-    else if ((game->player_gfx_target_rot - game->player_gfx_rot) < -180.0f)
-        game->player_gfx_target_rot += 360.0f;
-
-    Log(DEBUG, "cur=%f target=%f", game->player_gfx_rot, game->player_gfx_target_rot);
+    game->player_gfx_old_rot = wrap_angle_deg(game->player_gfx_rot);
+    game->player_gfx_target_rot = game->player_gfx_old_rot
+                                + wrap_angle_deg(rotation - game->player_gfx_old_rot);
 
     if (new_x >= 0 && new_x < GRID_WIDTH && new_y >= 0 && new_y < GRID_HEIGHT)
     {
