@@ -36,6 +36,7 @@ typedef struct _simple_vertex_t simple_vertex_t;
 typedef struct _normal_vertex_t normal_vertex_t;
 typedef struct _colored_vertex_t colored_vertex_t;
 typedef struct _textured_vertex_t textured_vertex_t;
+typedef struct _textured_normal_vertex_t textured_normal_vertex_t;
 
 struct _simple_vertex_t
 {
@@ -60,9 +61,20 @@ struct _textured_vertex_t
     vec2 texture_coord;
 };
 
+/* loaded meshes (obj) always use this layout; normal/texture_coord are
+   zero when the file does not provide them */
+struct _textured_normal_vertex_t
+{
+    vec3 position;
+    vec3 normal;
+    vec2 texture_coord;
+};
+
 bool MeshManager_Init(arena_t *arena);
 
 mesh_handle_t MeshManager_GetPredefinedMesh(predefined_mesh_t mesh);
+
+/* path is relative to the executable directory */
 mesh_handle_t MeshManager_LoadMesh(string path);
 
 #endif

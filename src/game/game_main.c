@@ -51,6 +51,7 @@ typedef enum
 typedef struct
 {
     mesh_handle_t cube_mesh;
+    mesh_handle_t player_mesh;
     pipeline_handle_t tile_pipeline;
     pipeline_handle_t player_pipeline;
     buffer_object_handle_t vp_uniform;
@@ -129,10 +130,29 @@ bool Game_Init(platform_window_t *window)
         return false;
     }
 
-    pipeline_config_t player_pipeline_config = tile_pipeline_config;
-    player_pipeline_config.name = "player";
-    player_pipeline_config.vertex_shader = Renderer_LoadShader("shaders/flat_color_edge.vert.spv");
-    player_pipeline_config.fragment_shader = Renderer_LoadShader("shaders/flat_color_edge.frag.spv");
+    pipeline_config_t player_pipeline_config = {
+        .name = "player",
+        .vertex_shader = Renderer_LoadShader("shaders/flat_color.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/flat_color.frag.spv"),
+        .push_constant_size = sizeof(flat_push_constant_t),
+        .vertex_stride = sizeof(normal_vertex_t),
+        .vertex_attribute_count = 1,
+        .vertex_attributes = {
+            {
+                .location = 0,
+                .format = VERTEX_FORMAT_F32X3,
+                .offset = offsetof(normal_vertex_t, position),
+            },
+        },
+        .uniform_binding_count = 1,
+        .uniform_bindings = {
+            {
+                .binding = 0,
+                .buffer_object = g_game.vp_uniform,
+                .stage = UNIFORM_STAGE_VERTEX,
+            },
+        },
+    };
 
     g_game.player_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &player_pipeline_config);
     if (g_game.player_pipeline == PIPELINE_HANDLE_INVALID)
@@ -141,6 +161,8 @@ bool Game_Init(platform_window_t *window)
         Engine_Destroy();
         return false;
     }
+
+    g_game.player_mesh = MeshManager_LoadMesh(string_lit("resources/models/sphere.obj"));
 
     g_game.player_pos_x = GRID_WIDTH / 2;
     g_game.player_pos_y = GRID_HEIGHT / 2;
@@ -342,7 +364,7 @@ static void draw_player(void)
         .color = PLAYER_COLOR,
     };
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.player_pipeline,
-                      &push_constant, g_game.cube_mesh);
+                      &push_constant, g_game.player_mesh);
 }
 
 
