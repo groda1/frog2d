@@ -44,4 +44,6 @@ executable('dcfs',
     ],
 )
 
-subdir('test')
+if get_option('tests')
+    subdir('test')
+endif
