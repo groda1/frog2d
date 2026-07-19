@@ -325,8 +325,24 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
         }
     }
 
-    mesh_out->vertex_buffer =
-        create_static_vertex_buffer(vertices, vertex_count * sizeof(textured_normal_vertex_t));
+    /* objs without uvs use normal_vertex_t so they render with the same
+       pipelines as the predefined normaled meshes */
+    const void *vertex_data = vertices;
+    u64 vertex_data_size = vertex_count * sizeof(textured_normal_vertex_t);
+    if (uv_count == 0)
+    {
+        normal_vertex_t *packed =
+            arena_push_array_no_zero(scratch.arena, normal_vertex_t, vertex_count);
+        for (u32 i = 0; i < vertex_count; i++)
+        {
+            packed[i].position = vertices[i].position;
+            packed[i].normal = vertices[i].normal;
+        }
+        vertex_data = packed;
+        vertex_data_size = vertex_count * sizeof(normal_vertex_t);
+    }
+
+    mesh_out->vertex_buffer = create_static_vertex_buffer(vertex_data, vertex_data_size);
     mesh_out->index_buffer = create_static_index_buffer(indices, index_count);
     mesh_out->index_count = index_count;
     result = true;

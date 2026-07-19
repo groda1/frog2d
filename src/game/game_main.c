@@ -67,6 +67,10 @@ typedef struct
     vec3 player_gfx_pos;
     vec3 player_gfx_target_pos;
 
+    f32  player_gfx_old_rot;
+    f32  player_gfx_rot;
+    f32  player_gfx_target_rot;
+
     vec3 camera_target;     /* smoothed follow point */
 
 } game_t;
@@ -80,6 +84,7 @@ static void update_camera(f32 delta_time);
 static void draw_grid(void);
 static void draw_player(void);
 static vec3 tile_center(i32 x, i32 y);
+static vec3 player_center(i32 x, i32 y);
 static bool player_attempt_move(i32 new_x, i32 new_y);
 
 bool Game_Init(platform_window_t *window)
@@ -132,16 +137,21 @@ bool Game_Init(platform_window_t *window)
 
     pipeline_config_t player_pipeline_config = {
         .name = "player",
-        .vertex_shader = Renderer_LoadShader("shaders/flat_color.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/flat_color.frag.spv"),
+        .vertex_shader = Renderer_LoadShader("shaders/player.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/player.frag.spv"),
         .push_constant_size = sizeof(flat_push_constant_t),
         .vertex_stride = sizeof(normal_vertex_t),
-        .vertex_attribute_count = 1,
+        .vertex_attribute_count = 2,
         .vertex_attributes = {
             {
                 .location = 0,
                 .format = VERTEX_FORMAT_F32X3,
                 .offset = offsetof(normal_vertex_t, position),
+            },
+            {
+                .location = 1,
+                .format = VERTEX_FORMAT_F32X3,
+                .offset = offsetof(normal_vertex_t, normal),
             },
         },
         .uniform_binding_count = 1,
@@ -162,13 +172,15 @@ bool Game_Init(platform_window_t *window)
         return false;
     }
 
-    g_game.player_mesh = MeshManager_LoadMesh(string_lit("resources/models/sphere.obj"));
+    g_game.player_mesh = MeshManager_LoadMesh(string_lit("resources/models/suzanne.obj"));
 
     g_game.player_pos_x = GRID_WIDTH / 2;
     g_game.player_pos_y = GRID_HEIGHT / 2;
 
-    g_game.player_gfx_pos = tile_center(g_game.player_pos_x, g_game.player_pos_y);
+    g_game.player_gfx_pos = player_center(g_game.player_pos_x, g_game.player_pos_y);
     g_game.player_gfx_target_pos = g_game.player_gfx_pos;
+    g_game.player_gfx_rot = 0.0f;
+    g_game.player_gfx_target_rot = g_game.player_gfx_rot;
     g_game.camera_target = g_game.player_gfx_pos;
 
     return true;
@@ -268,13 +280,20 @@ static void update_player_move(f32 delta_time)
     if (t > 1.0f)
         t = 1.0f;
 
-    vec3 old = tile_center(game->player_pos_x, game->player_pos_y);
+    vec3 old = player_center(game->player_pos_x, game->player_pos_y);
     game->player_gfx_pos = lerp(old, smoothstep(t), game->player_gfx_target_pos);
+    game->player_gfx_rot = lerp(game->player_gfx_old_rot, smoothstep(t), game->player_gfx_target_rot);
 
     if (game->player_anim_progress >= 1.0f)
     {
+        if (game->player_gfx_rot < -360.0f)
+            game->player_gfx_rot += 360.0f;
+        else if (game->player_gfx_rot > 360.0f)
+            game->player_gfx_rot -= 360.0f;
+
         game->player_pos_x = game->player_target_pos_x;
         game->player_pos_y = game->player_target_pos_y;
+        game->player_gfx_old_rot = game->player_gfx_rot;
         game->player_anim = PLAYER_ANIM_NONE;
         Log(DEBUG, "move complete %d,%d", game->player_pos_x, game->player_pos_y);
     }
@@ -290,9 +309,10 @@ static void update_player_bump(f32 delta_time)
     if (t > 1.0f)
         t = 1.0f;
 
-    vec3 old = tile_center(game->player_pos_x, game->player_pos_y);
+    vec3 old = player_center(game->player_pos_x, game->player_pos_y);
     game->player_gfx_pos = lerp(old, smootherstep(outbackstep(t)) * PLAYER_BUMP_DISTANCE,
                                       game->player_gfx_target_pos);
+    game->player_gfx_rot = lerp(game->player_gfx_old_rot, smootherstep(outbackstep(t)), game->player_gfx_target_rot);
 
     if (game->player_anim_progress >= 1.0f)
     {
@@ -343,7 +363,6 @@ static void draw_grid(void)
         for (i32 x = 0; x < GRID_WIDTH; x++)
         {
             vec3 center = tile_center(x, z);
-            center.Y = -TILE_THICKNESS / 2.0f;
 
             push_constant.transform = HMM_MulM4(HMM_Translate(center), scale);
             push_constant.color = ((x + z) & 1) ? TILE_COLOR_A : TILE_COLOR_B;
@@ -355,12 +374,16 @@ static void draw_grid(void)
 
 static void draw_player(void)
 {
-    vec3 center = g_game.player_gfx_pos;
-    center.Y = PLAYER_SIZE / 2.0f;
-
     flat_push_constant_t push_constant = {
-        .transform = HMM_MulM4(HMM_Translate(center),
-                               HMM_Scale(V3(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE))),
+        .transform = HMM_MulM4(
+                        HMM_Translate( g_game.player_gfx_pos),
+                        HMM_MulM4(
+                            HMM_MulM4(
+                                HMM_Rotate_RH(HMM_AngleDeg(-25), V3(1.0f, 0.0f, 0.0f)),
+                                HMM_Rotate_RH(HMM_AngleDeg(g_game.player_gfx_rot), V3(0.0f, 1.0f, 0.0f))),
+                            HMM_Scale(V3(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE))
+                        )
+                    ),
         .color = PLAYER_COLOR,
     };
     Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.player_pipeline,
@@ -368,10 +391,14 @@ static void draw_player(void)
 }
 
 
-
 static vec3 tile_center(i32 x, i32 y)
 {
-    return V3((f32)x + 0.5f, 0.0f, (f32)-y + 0.5f);
+    return V3((f32)x + 0.5f, -TILE_THICKNESS / 2.0f, (f32)-y + 0.5f);
+}
+
+static vec3 player_center(i32 x, i32 y)
+{
+    return V3((f32)x + 0.5f, PLAYER_SIZE / 2.0f, (f32)-y + 0.5f);
 }
 
 static bool player_attempt_move(i32 new_x, i32 new_y)
@@ -381,7 +408,32 @@ static bool player_attempt_move(i32 new_x, i32 new_y)
     Assert(game->player_anim == PLAYER_ANIM_NONE);
 
     game->player_anim_progress = 0.0f;
-    game->player_gfx_target_pos = tile_center(new_x, new_y);
+    game->player_gfx_target_pos = player_center(new_x, new_y);
+
+
+    if (new_x > game->player_pos_x) // east
+    {
+        game->player_gfx_target_rot = 90.0f;
+    }
+    else if (new_x < game->player_pos_x) // west
+    {
+        game->player_gfx_target_rot = -90.0f;
+    }
+    else if (new_y > game->player_pos_y) // north
+    {
+        game->player_gfx_target_rot = 180.0f;
+    }
+    else if (new_y < game->player_pos_y) // south
+    {
+        game->player_gfx_target_rot = 0.0f;
+    }
+
+    if ((game->player_gfx_target_rot - game->player_gfx_rot) > 180.0f)
+        game->player_gfx_target_rot -= 360.0f;
+    else if ((game->player_gfx_target_rot - game->player_gfx_rot) < -180.0f)
+        game->player_gfx_target_rot += 360.0f;
+
+    Log(DEBUG, "cur=%f target=%f", game->player_gfx_rot, game->player_gfx_target_rot);
 
     if (new_x >= 0 && new_x < GRID_WIDTH && new_y >= 0 && new_y < GRID_HEIGHT)
     {

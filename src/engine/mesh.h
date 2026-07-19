@@ -61,8 +61,8 @@ struct _textured_vertex_t
     vec2 texture_coord;
 };
 
-/* loaded meshes (obj) always use this layout; normal/texture_coord are
-   zero when the file does not provide them */
+/* loaded meshes (obj) with uvs use this layout; without uvs they use
+   normal_vertex_t (normals are zero when the file has none) */
 struct _textured_normal_vertex_t
 {
     vec3 position;
