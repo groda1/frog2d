@@ -23,6 +23,8 @@
 #define PLAYER_SIZE             0.7f
 #define PLAYER_COLOR            V4(0.9f, 0.5f, 0.2f, 1.0f)
 #define PLAYER_MOVE_SPEED       6.0f
+#define PLAYER_BUMP_SPEED       5.0f
+#define PLAYER_BUMP_DISTANCE    0.3f
 
 #define CAMERA_PITCH_DEG        55.0f
 #define CAMERA_DISTANCE         9.0f
@@ -35,6 +37,13 @@ typedef struct
     vec4 color;
 } flat_push_constant_t;
 
+typedef enum
+{
+    PLAYER_ANIM_NONE,
+    PLAYER_ANIM_MOVE,
+    PLAYER_ANIM_BUMP,
+} player_anim_t;
+
 typedef struct
 {
     mesh_handle_t cube_mesh;
@@ -42,14 +51,17 @@ typedef struct
     pipeline_handle_t player_pipeline;
     buffer_object_handle_t vp_uniform;
 
-    i32 player_old_pos_x;
-    i32 player_old_pos_y;
     i32 player_pos_x;
     i32 player_pos_y;
-    bool player_moving;
-    f32 player_move_progress;
+    i32 player_target_pos_x;
+    i32 player_target_pos_y;
 
-    vec3 player_gfx_pos;        /* world position, animated toward the tile center */
+    player_anim_t player_anim;
+    f32 player_anim_progress;
+
+    vec3 player_gfx_pos;
+    vec3 player_gfx_target_pos;
+
     vec3 camera_target;     /* smoothed follow point */
 
 } game_t;
@@ -57,6 +69,8 @@ typedef struct
 static game_t g_game;
 
 static void update_player(f32 delta_time);
+static void update_player_move(f32 delta_time);
+static void update_player_bump(f32 delta_time);
 static void update_camera(f32 delta_time);
 static void draw_grid(void);
 static void draw_player(void);
@@ -126,10 +140,9 @@ bool Game_Init(platform_window_t *window)
 
     g_game.player_pos_x = GRID_WIDTH / 2;
     g_game.player_pos_y = GRID_HEIGHT / 2;
-    g_game.player_old_pos_x = g_game.player_pos_x;
-    g_game.player_old_pos_y = g_game.player_pos_y;
 
     g_game.player_gfx_pos = tile_center(g_game.player_pos_x, g_game.player_pos_y);
+    g_game.player_gfx_target_pos = g_game.player_gfx_pos;
     g_game.camera_target = g_game.player_gfx_pos;
 
     return true;
@@ -147,7 +160,7 @@ void Game_HandleKeyDown(key_code_t key)
     if (Engine_HandleKeyDown(key) == KEY_EVENT_CONSUMED)
         return;
 
-    if (!game->player_moving)
+    if (game->player_anim == PLAYER_ANIM_NONE)
     {
         switch (key)
         {
@@ -206,25 +219,59 @@ void Game_Tick(void)
 
 static void update_player(f32 delta_time)
 {
+    switch (g_game.player_anim)
+    {
+        case PLAYER_ANIM_MOVE:
+            update_player_move(delta_time);
+            break;
+        case PLAYER_ANIM_BUMP:
+            update_player_bump(delta_time);
+            break;
+        case PLAYER_ANIM_NONE:
+            break;
+    }
+}
+
+static void update_player_move(f32 delta_time)
+{
     game_t *game = &g_game;
 
-    if (game->player_moving)
+    game->player_anim_progress += delta_time * PLAYER_MOVE_SPEED;
+
+    f32 t = game->player_anim_progress;
+    if (t > 1.0f)
+        t = 1.0f;
+
+    vec3 old = tile_center(game->player_pos_x, game->player_pos_y);
+    game->player_gfx_pos = lerp(old, smoothstep(t), game->player_gfx_target_pos);
+
+    if (game->player_anim_progress >= 1.0f)
     {
-        game->player_move_progress += delta_time * PLAYER_MOVE_SPEED;
+        game->player_pos_x = game->player_target_pos_x;
+        game->player_pos_y = game->player_target_pos_y;
+        game->player_anim = PLAYER_ANIM_NONE;
+        Log(DEBUG, "move complete %d,%d", game->player_pos_x, game->player_pos_y);
+    }
+}
 
-        vec3 old = tile_center(game->player_old_pos_x, game->player_old_pos_y);
-        vec3 new = tile_center(game->player_pos_x, game->player_pos_y);
+static void update_player_bump(f32 delta_time)
+{
+    game_t *game = &g_game;
 
-        game->player_gfx_pos = lerp(old, smoothstep(game->player_move_progress), new);
+    game->player_anim_progress += delta_time * PLAYER_BUMP_SPEED;
 
-        if (game->player_move_progress >= 1.0f)
-        {
-            game->player_move_progress = 0.0f;
-            game->player_old_pos_x = game->player_pos_x;
-            game->player_old_pos_y = game->player_pos_y;
-            game->player_moving = false;
-            Log(DEBUG, "move complete");
-        }
+    f32 t = game->player_anim_progress;
+    if (t > 1.0f)
+        t = 1.0f;
+
+    vec3 old = tile_center(game->player_pos_x, game->player_pos_y);
+    game->player_gfx_pos = lerp(old, smootherstep(outbackstep(t)) * PLAYER_BUMP_DISTANCE,
+                                      game->player_gfx_target_pos);
+
+    if (game->player_anim_progress >= 1.0f)
+    {
+        game->player_gfx_pos = old;
+        game->player_anim = PLAYER_ANIM_NONE;
     }
 }
 
@@ -236,7 +283,8 @@ static void update_camera(f32 delta_time)
     f32 follow = CAMERA_FOLLOW_SPEED * delta_time;
     if (follow > 1.0f)
         follow = 1.0f;
-    game->camera_target = HMM_LerpV3(game->camera_target, follow, game->player_gfx_pos);
+
+    game->camera_target = lerp(game->camera_target, follow, game->player_gfx_pos);
 
     f32 pitch = HMM_AngleDeg(CAMERA_PITCH_DEG + 10);
     vec3 offset = V3(0.0f,
@@ -297,28 +345,20 @@ static vec3 tile_center(i32 x, i32 y)
 static bool player_attempt_move(i32 new_x, i32 new_y)
 {
     game_t *game = &g_game;
-    bool moving = false;
 
-    Assert(!game->player_moving);
+    Assert(game->player_anim == PLAYER_ANIM_NONE);
 
-    if (new_x != game->player_pos_x && new_x >= 0 && new_x < GRID_WIDTH)
+    game->player_anim_progress = 0.0f;
+    game->player_gfx_target_pos = tile_center(new_x, new_y);
+
+    if (new_x >= 0 && new_x < GRID_WIDTH && new_y >= 0 && new_y < GRID_HEIGHT)
     {
-        //game->player_old_pos_x = game->player_pos_x;
-        game->player_pos_x = new_x;
-        moving = true;
-    }
-
-    if (new_y != game->player_pos_y && new_y >= 0 && new_y < GRID_HEIGHT)
-    {
-        //game->player_old_pos_y = game->player_pos_y;
-        game->player_pos_y = new_y;
-        moving = true;
-    }
-
-    if (moving)
-    {
-        game->player_moving = true;
+        game->player_target_pos_x = new_x;
+        game->player_target_pos_y = new_y;
+        game->player_anim = PLAYER_ANIM_MOVE;
         return true;
     }
+
+    game->player_anim = PLAYER_ANIM_BUMP;
     return false;
 }
