@@ -22,7 +22,6 @@
 #define MAX_QUEUE_PRIORITY_COUNT    8
 #define MAX_LAYER_COUNT             16
 #define MAX_PROPERTY_COUNT          MAX_LAYER_COUNT
-#define MAX_SURFACE_FORMATS         8
 #define MAX_PRESENT_MODES           8
 
 #define MAX_STATIC_BUFFERS          256
@@ -146,6 +145,7 @@ bool VulkanRenderer_Init(arena_t *arena, platform_window_t *window)
     return true;
 
 fail:
+    Log(ERROR, "Vulkan renderer failed to initialize");
     MemoryArena_PopTo(arena, pos);
 
     if (s_renderer->frame_arena)
@@ -397,23 +397,44 @@ renderpass_handle_t VulkanRenderer_CreateRenderPass(texture_handle_t target_text
 static bool create_swapchain(bool vsync)
 {
     VkSurfaceCapabilitiesKHR capabilities;
-    VkSurfaceFormatKHR formats[MAX_SURFACE_FORMATS];
-    u32 format_count = MAX_SURFACE_FORMATS;
     VkExtent2D extent;
 
     if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_physical_device, s_renderer->surface,
             &capabilities) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to get physical device surface capabilities");
         return false;
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(g_physical_device, s_renderer->surface,
-            &format_count, formats) != VK_SUCCESS)
-        return false;
+    }
 
+    scratch_t scratch = Scratch_Begin(s_renderer->global_arena);
+    u32 format_count = 0;
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(g_physical_device, s_renderer->surface,
+            &format_count, NULL) != VK_SUCCESS || format_count == 0)
+    {
+        Log(ERROR, "failed to get physical device surface format count");
+        Scratch_End(scratch);
+        return false;
+    }
+
+    VkSurfaceFormatKHR *formats =
+        arena_push_array_no_zero(scratch.arena, VkSurfaceFormatKHR, format_count);
+    VkResult res = vkGetPhysicalDeviceSurfaceFormatsKHR(g_physical_device, s_renderer->surface,
+                                                        &format_count, formats);
+    if (res != VK_SUCCESS && res != VK_INCOMPLETE)
+    {
+        Log(ERROR, "failed to get physical device surface formats");
+        Scratch_End(scratch);
+        return false;
+    }
 
     /* choose a swapchain surface format */
     VkSurfaceFormatKHR format = {0};
     for (u32 i = 0; i< format_count; i++)
         if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
             format = formats[i];
+
+    Scratch_End(scratch);
+
     if (format.format != VK_FORMAT_B8G8R8A8_SRGB)
     {
         Log(ERROR, "found no suitable swapchain surface format");
