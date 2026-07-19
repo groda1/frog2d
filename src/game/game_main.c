@@ -30,6 +30,10 @@
 #define CAMERA_DISTANCE         9.0f
 #define CAMERA_FOV_DEG          60.0f
 #define CAMERA_FOLLOW_SPEED     8.0f
+#define CAMERA_BOT_CLAMP -2.0f
+#define CAMERA_TOP_CLAMP 5.0f
+#define CAMERA_RIGHT_CLAMP 7.0f
+#define CAMERA_LEFT_CLAMP 7.0f
 
 typedef struct
 {
@@ -284,7 +288,13 @@ static void update_camera(f32 delta_time)
     if (follow > 1.0f)
         follow = 1.0f;
 
-    game->camera_target = lerp(game->camera_target, follow, game->player_gfx_pos);
+    vec3 new_target = {
+        .X = Clamp(CAMERA_LEFT_CLAMP, game->player_gfx_pos.X, GRID_WIDTH - CAMERA_RIGHT_CLAMP),
+        .Y = game->player_gfx_pos.Y,
+        .Z = Clamp(-GRID_HEIGHT + CAMERA_TOP_CLAMP, game->player_gfx_pos.Z, CAMERA_BOT_CLAMP),
+    };
+
+    game->camera_target = lerp(game->camera_target, follow, new_target);
 
     f32 pitch = HMM_AngleDeg(CAMERA_PITCH_DEG + 10);
     vec3 offset = V3(0.0f,
