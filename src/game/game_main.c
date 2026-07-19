@@ -56,7 +56,11 @@ typedef struct
 
 static game_t g_game;
 
-static vec3 tile_center(i32 x, i32 z);
+static void update_player(f32 delta_time);
+static void update_camera(f32 delta_time);
+static void draw_grid(void);
+static void draw_player(void);
+static vec3 tile_center(i32 x, i32 y);
 static bool player_attempt_move(i32 new_x, i32 new_y);
 
 bool Game_Init(platform_window_t *window)
@@ -187,6 +191,19 @@ void Game_HandleResize(u32 width, u32 height)
     Engine_HandleResize(width, height);
 }
 
+void Game_Tick(void)
+{
+    f32 delta_time = Engine_BeginFrame();
+
+    update_player(delta_time);
+    update_camera(delta_time);
+
+    draw_grid();
+    draw_player();
+
+    Engine_EndFrame();
+}
+
 static void update_player(f32 delta_time)
 {
     game_t *game = &g_game;
@@ -270,18 +287,7 @@ static void draw_player(void)
                       &push_constant, g_game.cube_mesh);
 }
 
-void Game_Tick(void)
-{
-    f32 delta_time = Engine_BeginFrame();
 
-    update_player(delta_time);
-    update_camera(delta_time);
-
-    draw_grid();
-    draw_player();
-
-    Engine_EndFrame();
-}
 
 static vec3 tile_center(i32 x, i32 y)
 {

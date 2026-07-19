@@ -1,5 +1,10 @@
 
 - console
+    - mouse scroll
+    - input
+- cvars
+    - how to implement fps limit
+
 - sort draw commands by pipeline to minimize rebinds
 - investigate ASAN with arena. How to intercept and so on
 
