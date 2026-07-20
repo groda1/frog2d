@@ -70,6 +70,7 @@ struct _vk_renderer_t
     VkSurfaceKHR                        surface;
     VkExtent2D                          window_extent;
     VkCommandPool                       command_pool;
+    VkCommandPool                       transfer_command_pool;
     VkCommandBuffer                     draw_command_buffers[MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer                     transfer_command_buffers[MAX_FRAMES_IN_FLIGHT];
 
@@ -170,6 +171,7 @@ bool VulkanRenderer_Destroy()
         VulkanTexture_Destroy();
 
         vkDestroyCommandPool(g_device, s_renderer->command_pool, NULL);
+        vkDestroyCommandPool(g_device, s_renderer->transfer_command_pool, NULL);
         vkDestroyDevice(g_device, NULL);
         vkDestroySurfaceKHR(s_renderer->instance, s_renderer->surface, NULL);
         vkDestroyInstance(s_renderer->instance, NULL);
@@ -460,9 +462,10 @@ static bool create_swapchain(bool vsync)
 
     Log(DEBUG, "extent %u, %u", extent.width, extent.height);
 
-    /* verify image count */
+    /* verify image count. maxImageCount == 0 is a special case meaning "no upper limit", not
+       a limit of zero - drivers (e.g. Intel's) commonly report this. */
     if (capabilities.minImageCount > MAX_FRAMES_IN_FLIGHT ||
-        capabilities.maxImageCount < MAX_FRAMES_IN_FLIGHT)
+        (capabilities.maxImageCount != 0 && capabilities.maxImageCount < MAX_FRAMES_IN_FLIGHT))
     {
         Log(ERROR, "unsupported swapchain image count: min=%d max=%d", capabilities.minImageCount,
             capabilities.maxImageCount);
@@ -789,51 +792,67 @@ static bool setup_physical_device()
         .present_family_index = U32_MAX,
     };
 
-    u32 used_queues_per_family[MAX_FAMILY_COUNT];
-    MemoryZeroArray(used_queues_per_family);
-
     vkGetPhysicalDeviceQueueFamilyProperties(g_physical_device, &family_count, family_properties);
     Log(DEBUG, "queue family count: %d", family_count);
 
-    for (u32 i = 0 ; i< family_count; i++)
+    for (u32 i = 0; i < family_count; i++)
     {
         VkQueueFamilyProperties prop = family_properties[i];
         Log(DEBUG, "queue family %d: queue_count=%d gfx=%d transfer=%d compute=%d",
             i, prop.queueCount,
-            prop.queueFlags & VK_QUEUE_GRAPHICS_BIT,
-            prop.queueFlags & VK_QUEUE_TRANSFER_BIT,
-            prop.queueFlags & VK_QUEUE_COMPUTE_BIT);
+            (prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0,
+            (prop.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0,
+            (prop.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0);
+    }
 
-        if ((queue_families.graphics_family_index == U32_MAX) && (prop.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+    /* Pass 1: look for a family dedicated to transfer-only / compute-only work (no graphics
+       bit). That's a genuine extra hardware queue worth using for async transfer/compute. A
+       graphics queue is already guaranteed by the spec to support both transfer and compute, so
+       a "dedicated" slot there wouldn't buy anything - it's picked up as the fallback below
+       instead. */
+    for (u32 i = 0; i < family_count; i++)
+    {
+        VkQueueFlags flags = family_properties[i].queueFlags;
+
+        if (queue_families.transfer_family_index == U32_MAX &&
+            (flags & VK_QUEUE_TRANSFER_BIT) && !(flags & VK_QUEUE_GRAPHICS_BIT))
         {
-            if (used_queues_per_family[i] < prop.queueCount)
-            {
-                queue_families.graphics_family_index = i;
-                queue_families.graphics_queue_index = used_queues_per_family[i];
-                used_queues_per_family[i]++;
-            }
+            queue_families.transfer_family_index = i;
+            queue_families.transfer_queue_index = 0;
         }
-        if ((queue_families.transfer_family_index == U32_MAX) && (prop.queueFlags & VK_QUEUE_TRANSFER_BIT))
+        if (queue_families.compute_family_index == U32_MAX &&
+            (flags & VK_QUEUE_COMPUTE_BIT) && !(flags & VK_QUEUE_GRAPHICS_BIT))
         {
-            if (used_queues_per_family[i] < prop.queueCount)
+            queue_families.compute_family_index = i;
+            queue_families.compute_queue_index = 0;
+        }
+    }
+
+    /* Pass 2: graphics and present, falling back transfer/compute onto the graphics family if
+       no dedicated family was found above. */
+    for (u32 i = 0; i < family_count; i++)
+    {
+        VkQueueFlags flags = family_properties[i].queueFlags;
+
+        if (queue_families.graphics_family_index == U32_MAX && (flags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            queue_families.graphics_family_index = i;
+            queue_families.graphics_queue_index = 0;
+
+            if (queue_families.transfer_family_index == U32_MAX)
             {
                 queue_families.transfer_family_index = i;
-                queue_families.transfer_queue_index = used_queues_per_family[i];
-                used_queues_per_family[i]++;
+                queue_families.transfer_queue_index = 0;
             }
-        }
-        if ((queue_families.compute_family_index == U32_MAX) && (prop.queueFlags & VK_QUEUE_COMPUTE_BIT))
-        {
-            if (used_queues_per_family[i] < prop.queueCount)
+            if (queue_families.compute_family_index == U32_MAX)
             {
                 queue_families.compute_family_index = i;
-                queue_families.compute_queue_index = used_queues_per_family[i];
-                used_queues_per_family[i]++;
+                queue_families.compute_queue_index = 0;
             }
         }
         if (queue_families.present_family_index == U32_MAX)
         {
-            u32 present_supported;
+            VkBool32 present_supported = VK_FALSE;
 
             if (vkGetPhysicalDeviceSurfaceSupportKHR(
                     g_physical_device, i, s_renderer->surface, &present_supported) == VK_SUCCESS &&
@@ -867,13 +886,18 @@ static bool setup_physical_device()
 
 static bool create_logical_device()
 {
-    u8 queue_count_by_family[MAX_FAMILY_COUNT] = {0};
+    /* setup_physical_device() always hands out queue index 0 within a family, sharing a single
+       queue across roles that land on the same family, so each distinct family used needs
+       exactly one VkQueue regardless of how many roles point at it. Requesting more than that
+       would over-ask a family for queues it doesn't have (e.g. a single-queue family on
+       integrated GPUs). */
+    bool family_used[MAX_FAMILY_COUNT] = {0};
     queue_families_t *families = &s_renderer->queue_families;
 
-    queue_count_by_family[families->graphics_family_index]++;
-    queue_count_by_family[families->transfer_family_index]++;
-    queue_count_by_family[families->compute_family_index]++;
-    queue_count_by_family[families->present_family_index]++;
+    family_used[families->graphics_family_index] = true;
+    family_used[families->transfer_family_index] = true;
+    family_used[families->compute_family_index] = true;
+    family_used[families->present_family_index] = true;
 
     f32 queue_priorities[MAX_QUEUE_PRIORITY_COUNT];
 
@@ -886,13 +910,13 @@ static bool create_logical_device()
 
     for (u32 i = 0; i < MAX_FAMILY_COUNT; i++)
     {
-        if (queue_count_by_family[i] > 0)
+        if (family_used[i])
         {
             VkDeviceQueueCreateInfo create_info = {
                 .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
                 .queueFamilyIndex = i,
                 .pQueuePriorities = queue_priorities,
-                .queueCount = queue_count_by_family[i],
+                .queueCount = 1,
             };
             queue_creates[queue_create_count++] = create_info;
 
@@ -965,6 +989,22 @@ static bool create_logical_device()
         return false;
     }
 
+    /* Command buffers must be allocated from a pool created for the same queue family they're
+       submitted to (VUID-vkQueueSubmit-pCommandBuffers-00074). transfer_family_index can be a
+       genuinely separate family from graphics (e.g. a dedicated DMA queue), so transfer command
+       buffers need their own pool rather than reusing the graphics one. */
+    VkCommandPoolCreateInfo create_transfer_command_pool = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = families->transfer_family_index
+    };
+
+    if (vkCreateCommandPool(g_device, &create_transfer_command_pool, NULL, &s_renderer->transfer_command_pool) != VK_SUCCESS)
+    {
+        Log(ERROR, "failed to create transfer command pool");
+        return false;
+    }
+
     VkCommandBufferAllocateInfo allocate_command_buffers = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = s_renderer->command_pool,
@@ -978,7 +1018,15 @@ static bool create_logical_device()
         Log(ERROR, "failed to allocate draw command buffers");
         return false;
     }
-    if (vkAllocateCommandBuffers(g_device, &allocate_command_buffers,
+
+    VkCommandBufferAllocateInfo allocate_transfer_command_buffers = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = s_renderer->transfer_command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = MAX_FRAMES_IN_FLIGHT,
+    };
+
+    if (vkAllocateCommandBuffers(g_device, &allocate_transfer_command_buffers,
                                  s_renderer->transfer_command_buffers) != VK_SUCCESS)
     {
         Log(ERROR, "failed to allocate transfer command buffers");
