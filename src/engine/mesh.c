@@ -327,6 +327,7 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
 
     /* objs without uvs use normal_vertex_t so they render with the same
        pipelines as the predefined normaled meshes */
+    // TODO REMOVE
     const void *vertex_data = vertices;
     u64 vertex_data_size = vertex_count * sizeof(textured_normal_vertex_t);
     if (uv_count == 0)

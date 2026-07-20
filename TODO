@@ -3,6 +3,7 @@
     - mouse scroll
     - input
 - cvars
+- test RGFW as a replacement for SDL3
 
 - sort draw commands by pipeline to minimize rebinds
 - investigate ASAN with arena. How to intercept and so on
