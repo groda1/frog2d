@@ -209,10 +209,164 @@ following at a semi-topdown pitch. Tunables are defines at the top of
 game_main.c (grid size, tile gap/colors, move step time, camera
 pitch/distance/fov/follow speed). This exists to lock in the look and
 feel before the client/server split; it dissolves into client/ when
-milestone 1 starts.
+milestone 2 starts.
 
 
-MILESTONE 1 (agreed): one room, walking cube
+MILESTONE 1 (next): animated models and weapon anchoring
+--------------------------------------------------------
+
+The grid sandbox's player cube becomes an animated human model holding
+a weapon. Work: the .frog loader, the two-buffer morph-animation path
+in the renderer + shader, CPU-side weapon anchoring, and the Blender
+export script. Still pre-split scratch work (engine + game_main.c); the
+client/server split is milestone 2. The design:
+
+Animation technique: Quake-style keyframe (morph-target) vertex
+animation. A model is a set of named animations, each a sequence of
+keyframes holding a full copy of the mesh's deformed vertices. The
+engine binds two keyframes as two vertex buffers plus a mix factor in
+the push constant, and the vertex shader lerps position/normal between
+them per vertex (or snaps, for the chunky 90s look). No skeleton, no
+glTF — deliberately avoided as heavy machinery wrong for the aesthetic.
+
+Weapon anchoring: held weapons attach via named anchors (the MD3 "tag"
+idea, since there is no skeleton). An anchor is an origin + orientation
+that lives at, e.g., the hand and is authored in Blender as an empty
+parented to the mesh. Its transform is stored per keyframe just like the
+vertices, and the runtime interpolates it with the SAME mix factor
+(lerp the position, slerp the quat) to get the anchor's pose for the
+current frame. The weapon is a separate model with its own draw call;
+its model matrix is player_world_matrix * interpolated_anchor_transform.
+Unlike the vertices, the anchor is one transform, not thousands — so it
+is interpolated on the CPU per entity per frame and passed as an
+ordinary per-draw uniform, not through the vertex-blend path.
+
+The anchor is rigid — position + orientation only, no scale — and is
+exported in the model's local space (the same space as the vertices).
+So a weapon's size cannot come from the tag; weapons are authored at
+final real-world scale relative to the wielder, and object transforms
+are applied before export (object scale = 1, baked into the mesh). One
+consequence falls out for free: a per-entity UNIFORM scale in
+player_world_matrix (a giant, a rat) flows into both the arm-offset and
+the weapon mesh, so a held weapon scales with its wielder automatically.
+Entity scale must stay uniform — a non-uniform scale would shear the
+rigid anchor and break normals. If a single weapon ever needs rescaling
+relative to wielders, that is a per-model factor in the display-data
+table, not a field in the .frog.
+
+File format (.frog): custom binary, replaces the earlier OBJ-sequence
+idea entirely. OBJ cannot carry an anchor transform (it has no concept
+of an empty or a standalone transform), and a per-keyframe OBJ sequence
+duplicates the shared topology in every frame. One Blender Python script
+walks the scene and writes this format directly — mesh, every animation,
+and the anchor transforms per keyframe — with no OBJ intermediate and no
+separate bake step: the exported file IS the runtime format.
+
+Key structural decision: topology and non-animated attributes are stored
+ONCE per model, not per keyframe. Morph interpolation blends vertex i of
+frame A with vertex i of frame B, so every keyframe MUST share the same
+vertex count and index buffer — storing them per frame would be
+redundant and a correctness trap. The split also matches how the data
+reaches the GPU: the animated attributes (position, normal) are exactly
+the two per-frame vertex buffers the shader blends, while the constant
+attributes (the per-vertex material index) and the index buffer are uploaded once and bound
+for every frame. Anchor names are likewise fixed per model; only each
+anchor's transform is per keyframe.
+
+Consequences of that split, stated so exporter and loader agree:
+
+  - Geometry lives ONLY inside keyframes, so the format requires at
+    least one animation of at least one keyframe. A static model (a
+    weapon, a prop) is one animation of one keyframe; the loader reads
+    its mesh from keyframe 0. (This is the MD2/MD3 convention.) Both
+    ends handle this: a static Blender model has no animation or
+    keyframe data, so the export script synthesizes the single
+    animation / single keyframe wrapper, and the parser recognizes the
+    1-animation / 1-keyframe case and hands it back as a static model.
+  - The .frog carries no sampled texture: surface color comes entirely
+    from a per-model material palette. Each material is a named slot
+    (skin, hair, eyes, ...) with a default base_color and specular_color,
+    and every vertex stores a u8 index into that palette. The palette
+    colors in the file are DEFAULTS: a per-entity recolor (dynamic hair,
+    tinted monster variants) overrides individual slots at runtime via the
+    display-data table, so one model stays reusable across recolors. Slots
+    are resolved by name, never by fixed index, so reordering materials in
+    Blender cannot silently break a recolor. There is no submesh split —
+    one draw covers the whole model and the shader looks up base/specular
+    per vertex from the palette. Procedural surface detail (noise for a
+    rough look) is a shader effect driven by object-space position, not a
+    texture — if added it becomes a per-material flag and still needs no
+    UVs.
+  - Loop policy is deliberately NOT in the format. The client decides
+    per animation (walk loops; attack/death play once) by animation id.
+
+Conventions: little-endian; fields packed, no padding; a string is a
+u16 byte length followed by that many UTF-8 bytes, no null terminator;
+the magic is the 8 ASCII bytes "FROGMODL". Versioned from day one, same
+principle as the protocol.
+
+Exporter / loader contract:
+
+  - Positions are in engine space: Blender's Z-up right-handed is
+    converted to the engine's Y-up right-handed (HMM_LookAt_RH) on
+    export.
+  - Indices are a triangle list; the front face is CLOCKWISE, to match
+    the renderer (VK_FRONT_FACE_CLOCKWISE + back-face cull; the CW choice
+    comes from Vulkan's flipped-Y clip space). Blender and the graphics
+    default are CCW, so the exporter reverses each triangle's winding on
+    export — the loader stays dumb, same net result as the OBJ loader
+    reversing at load today.
+  - Quaternions are stored xyzw, normalized (Blender's wxyz reordered).
+  - The stream is packed, so fields land unaligned (vertex_count is at
+    byte 10). The loader copies each field out (memcpy into aligned GPU
+    buffers) and must NOT cast a pointer into the mapped file.
+  - Per-keyframe anchor transforms correspond positionally to the
+    header's anchor-name list; the name is not repeated per keyframe.
+  - No bounding volume yet; add one via a version bump when culling
+    needs it.
+
+    FILE
+      magic              u8[8]      "FROGMODL"
+      version            u16
+      vertex_count       u32        N  — shared by every keyframe
+      index_count        u32        I
+      material_count     u16        P
+      anchor_count       u16        A
+      animation_count    u16        M
+
+      indices            u32[I]
+
+      materials  × material_count (P):
+          name_len       u16
+          name           u8[name_len]        slot name: "skin", "hair", ...
+          base_color     f32[3]     12
+          specular_color f32[3]     12
+
+      constant vertex attributes  × vertex_count (N):     [1 byte each]
+          material       u8         1        index into the palette above
+
+      anchor names  × anchor_count (A):
+          name_len       u16
+          name           u8[name_len]
+
+      animations  × animation_count (M):
+          name_len       u16
+          name           u8[name_len]
+          keyframe_count u16        K
+
+          keyframes  × keyframe_count (K):
+              time       f32        seconds; 0.0 for the first keyframe
+
+              animated vertex attributes  × vertex_count (N):  [24 bytes each]
+                  position   f32[3]     12
+                  normal     f32[3]     12
+
+              anchor transforms  × anchor_count (A):           [28 bytes each]
+                  position     f32[3]   12
+                  orientation  f32[4]   16   quat, xyzw
+
+
+MILESTONE 2 (agreed): one room, walking cube
 --------------------------------------------
 
 Protocol message structs + the local message pump + a server that
@@ -250,7 +404,7 @@ command_rejected { sequence, reason } } }. Fixed-cap inline arrays
 per the struct rules. Terrain/entity ids in protocol.h.
 
 
-MILESTONE 2 (agreed): monster, FOV, fog of war
+MILESTONE 3 (agreed): monster, FOV, fog of war
 ----------------------------------------------
 
 A simple monster that wanders the level, plus FOV and fog of war.
@@ -258,7 +412,7 @@ This is the milestone where the hidden-information machinery becomes
 real: the server computes FOV and only sends visible cells; map
 memory (fog of war) is tracked server-side per player and streamed as
 "remembered" cell state. The wandering monster exercises the two
-things milestone 1 can't: the world acting without any player command
+things milestone 2 can't: the world acting without any player command
 (events not caused by the local client), and entities entering/
 leaving the visible set (the client learns of the monster only when
 it walks into view, and the server stops telling the client about it
@@ -276,15 +430,6 @@ OPEN QUESTIONS
   view wants short movement/attack animations. Client concern only,
   but affects how events are timestamped/grouped (e.g. "these events
   happened in one world turn" grouping for parallel animation).
-
-- Model/animation format (eventually): leaning OBJ for static meshes
-  and Quake-style keyframe vertex animation for movement — one OBJ
-  per keyframe (Blender's OBJ export can dump animation as a numbered
-  sequence), engine lerps (or snaps, for the chunky 90s look) between
-  frames; two vertex buffers + mix factor in the push constant.
-  Possibly baked into a small binary blob at build time. Skeletal/
-  glTF deliberately avoided: heavy machinery and wrong for the
-  aesthetic.
 
 - Replay format: with ser/deser living in the network layer, a replay
   is most naturally the recorded network byte stream. Fine — but it

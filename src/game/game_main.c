@@ -22,7 +22,7 @@
 
 #define PLAYER_SIZE             0.7f
 #define PLAYER_COLOR            V4(0.9f, 0.5f, 0.2f, 1.0f)
-#define PLAYER_MOVE_SPEED       6.0f
+#define PLAYER_MOVE_SPEED       7.0f;
 #define PLAYER_BUMP_SPEED       5.0f
 #define PLAYER_BUMP_DISTANCE    0.3f
 
