@@ -354,27 +354,40 @@ bob is keyframes on the head object). Consequences:
     the next marker (or scene end). No markers: the authored-key span
     is one animation ("default"); no keys at all is the synthesized
     static single-keyframe case ("static", never sampled).
-  - Keyframes are BAKED by sampling, not taken from the artist's
-    authored keys. The exporter steps the scene at a fixed cadence
-    (default 12 Hz, --rate to change) across each animation's range
-    and freezes the fully evaluated (armature- and modifier-deformed)
-    mesh at each step; the artist's sparse keys just drive Blender's
-    interpolation in between. The first and last frame of the range
-    are ALWAYS captured even when they fall between cadence steps, so
-    the extreme poses are exact (a short final interval is fine — the
-    runtime interpolates by each keyframe's stored time, not by
-    assuming uniform spacing). Keyframe time is
-    (frame - range_start) / scene fps, so cadence never affects
-    playback speed. Because integer frame stepping quantizes the rate
-    (step = round(scene_fps / rate)), the exporter reports the
-    effective Hz. Dense sampling is not optional polish: the runtime
-    lerps vertex positions in straight lines, so a large rotation
-    between two stored frames becomes a chord and the mesh collapses
-    toward the pivot mid-blend — the cadence must stay dense enough
-    that per-step rotation is small (chord ~ arc). It doubles as the
-    retro-chunkiness dial: lower it for the 90s look. Sampling also
-    captures Blender's easing for free, since each sampled pose is
-    the evaluated result at that instant.
+  - Keyframes are BAKED: for each animation the exporter freezes the
+    fully evaluated (armature- and modifier-deformed) mesh at a set of
+    frames that is the UNION of two things — a fixed-cadence grid
+    (default 12 Hz, --rate to change) and the artist's authored key
+    frame times that fall in range — with the range's first and last
+    frame always included. The two roles:
+      · The cadence is a density FLOOR. The runtime lerps vertex
+        positions in straight lines, so between two stored frames a
+        rotation becomes a chord, not an arc, and an under-sampled
+        limb visibly collapses toward its pivot mid-blend. A fixed
+        grid guarantees per-step rotation stays small (chord ~ arc)
+        no matter how sparsely the artist keyed. It also doubles as
+        the retro-chunkiness dial (lower for the 90s look), and
+        captures Blender's easing for free since each sampled pose is
+        the evaluated result at that instant.
+      · The authored keys are the artist's OVERRIDE on that floor.
+        Uniform sampling aliases fast events — it oversamples slow
+        motion and undersamples fast, exactly backwards — so a punch
+        peak between two grid steps gets softened. Keying that pose
+        (a mesh key, or a bone key on an armature rig) pins it as an
+        exact lerp anchor the bake is guaranteed to hit.
+    --rate 0 drops the grid entirely: keyframes are then just the
+    endpoints plus authored keys — the artist keys the lerp points by
+    hand. Use only when the motion has no large unkeyed rotations.
+    Keyframe time is (frame - range_start) / scene fps, so cadence
+    never affects playback speed, and the runtime interpolates by each
+    keyframe's stored time (the uneven spacing the union produces is
+    fine). Integer frame stepping quantizes the grid
+    (step = round(scene_fps / rate)), so the exporter reports the
+    effective Hz. (Someday-optimum, not built: adaptive decimation —
+    bake dense, then drop keyframes whose removal stays within a
+    per-vertex error tolerance — gives the minimal keyset with no
+    aliasing. The format already stores arbitrary per-keyframe times,
+    so it needs no format change.)
   - Palette colors are read from each material's Principled BSDF
     Base Color (viewport diffuse color as fallback) and the viewport
     display specular color; faces with no material get a synthesized

@@ -184,24 +184,30 @@ class Animation:
         self.effective_hz = None
 
 
-def sample_frames(start, end, scene_fps, sample_hz):
-    """Integer scene frames from start to end at ~sample_hz. Both endpoints
-    are always included even when they do not land on the cadence, so the
-    animation's extreme poses are exact. Returns (frames, effective_hz).
+def sample_frames(start, end, scene_fps, sample_hz, authored):
+    """Frames to bake for one animation: the UNION of a fixed-cadence grid
+    and the artist's authored keyframe times within the range, with both
+    endpoints always included. Returns (frames, effective_hz).
 
-    We do NOT sample the artist's authored keyframes: those drive Blender's
-    interpolation, and we freeze the evaluated (deformed) mesh at each frame
-    here. Sampling densely is what keeps morph lerp from turning rotations
-    into collapsing chords (see DESIGN)."""
+    The cadence (sample_hz, 0 = off) is a density FLOOR: it guarantees
+    enough samples that morph lerp never turns a large rotation into a
+    collapsing chord, even when the motion is under-keyed. The authored keys
+    are the artist's override on top of that floor — keying a pose (a punch
+    peak, a bone extreme) pins it as an exact lerp anchor so uniform sampling
+    cannot alias past it. sample_hz == 0 drops the grid entirely: just the
+    endpoints plus authored keys, i.e. the artist keys the lerp points."""
     f0 = int(round(start))
     f1 = int(round(end))
     if f1 <= f0:
-        return [f0], scene_fps
-    step = max(1, int(round(scene_fps / sample_hz)))
-    frames = list(range(f0, f1 + 1, step))
-    if frames[-1] != f1:
-        frames.append(f1)
-    return frames, scene_fps / step
+        return [f0], None
+    frames = {f0, f1}
+    eff_hz = None
+    if sample_hz > 0.0:
+        step = max(1, int(round(scene_fps / sample_hz)))
+        frames.update(range(f0, f1 + 1, step))
+        eff_hz = scene_fps / step
+    frames.update(f for f in authored if f0 <= f <= f1)
+    return dedupe_frames(frames), eff_hz
 
 
 def build_animations(scene, all_key_frames, scene_fps, sample_hz):
@@ -232,7 +238,7 @@ def build_animations(scene, all_key_frames, scene_fps, sample_hz):
 
     animations = []
     for name, start, end in ranges:
-        frames, eff_hz = sample_frames(start, end, scene_fps, sample_hz)
+        frames, eff_hz = sample_frames(start, end, scene_fps, sample_hz, keys)
         if len(frames) > 0xFFFF:
             raise ExportError(f'animation "{name}": {len(frames)} keyframes exceeds u16')
         anim = Animation(name, float(frames[0]), float(frames[-1]), frames, scene_fps)
@@ -356,8 +362,8 @@ def parse_args():
                 sample_hz = float(value)
             except ValueError:
                 raise ExportError(f"--rate: not a number: {value!r}")
-            if sample_hz <= 0.0:
-                raise ExportError("--rate must be positive")
+            if sample_hz < 0.0:
+                raise ExportError("--rate must be >= 0 (0 = authored keyframes + endpoints only)")
         elif out_path is None:
             out_path = arg
         else:
@@ -379,7 +385,10 @@ def export():
     print(f" blend : {bpy.data.filepath or '(unsaved)'}")
     print(f" out   : {out_path}")
     print(f" scene : frames {scene.frame_start}..{scene.frame_end} @ {fps:.2f} fps")
-    print(f" sample: {sample_hz:g} Hz  (endpoints always captured)")
+    if sample_hz > 0.0:
+        print(f" sample: {sample_hz:g} Hz cadence + authored keys (endpoints always captured)")
+    else:
+        print(" sample: authored keys + endpoints only (--rate 0)")
     print(" axes  : engine = (x, z, -y) of blender; winding reversed CCW -> CW")
     print("=" * 74)
 
@@ -413,10 +422,11 @@ def export():
     if len(animations) > 0xFFFF:
         raise ExportError("animation count exceeds u16")
 
-    print(f"animations ({len(animations)}, baked at {sample_hz:g} Hz):")
+    mode = f"{sample_hz:g} Hz + authored keys" if sample_hz > 0.0 else "authored keys + endpoints"
+    print(f"animations ({len(animations)}, {mode}):")
     for anim in animations:
         shown = ", ".join(f"{f:g}" for f in anim.frames)
-        eff = f", ~{anim.effective_hz:.1f} Hz" if anim.effective_hz else ""
+        eff = f", ~{anim.effective_hz:.1f} Hz cadence" if anim.effective_hz else ""
         print(f'  "{anim.name}"  frames {anim.start:g}..{anim.end:g}  '
               f"{len(anim.frames)} keyframes{eff} at [{shown}]")
     if len(animations) == 1 and len(animations[0].frames) == 1:
