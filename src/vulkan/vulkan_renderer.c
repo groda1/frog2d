@@ -66,17 +66,17 @@ struct _vk_renderer_t
     arena_t *frame_arena;       // Frame lifetime
 
     // data
-    VkInstance                          instance;
-    VkSurfaceKHR                        surface;
-    VkExtent2D                          window_extent;
-    VkCommandPool                       command_pool;
-    VkCommandPool                       transfer_command_pool;
-    VkCommandBuffer                     draw_command_buffers[MAX_FRAMES_IN_FLIGHT];
-    VkCommandBuffer                     transfer_command_buffers[MAX_FRAMES_IN_FLIGHT];
+    VkInstance         instance;
+    VkSurfaceKHR       surface;
+    VkExtent2D         window_extent;
+    VkCommandPool      command_pool;
+    VkCommandPool      transfer_command_pool;
+    VkCommandBuffer    draw_command_buffers[MAX_FRAMES_IN_FLIGHT];
+    VkCommandBuffer    transfer_command_buffers[MAX_FRAMES_IN_FLIGHT];
 
-    queue_families_t                    queue_families;
-    swapchain_t                         swapchain;
-    frame_sync_t                        frame_sync;
+    queue_families_t   queue_families;
+    swapchain_t        swapchain;
+    frame_sync_t       frame_sync;
 };
 
 

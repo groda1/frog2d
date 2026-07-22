@@ -1,3 +1,5 @@
 .zed
 .cache
 .vscode
+/tools/__pycache__/
+/tools/*.frog

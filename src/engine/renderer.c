@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "core.h"
 #include "file.h"
 #include "os_path.h"
 #include "image.h"
@@ -13,6 +14,7 @@
 #define MAX_RESOURCE_PATH 512
 
 static arena_t *s_arena;
+render_stats_t g_render_stats = {};
 
 bool Renderer_Init(arena_t *arena)
 {
@@ -136,5 +138,20 @@ void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle
         .instance_count = instance_count,
     };
 
+    g_render_stats.n_draw_calls++;
+    g_render_stats.n_triangles += instance_count * (mesh->index_count / 3);
+
     VulkanPass_AddDrawCommand(&draw_command);
+}
+
+void Renderer_BeginFrame()
+{
+    MemoryZeroItem(&g_render_stats);
+
+    VulkanRenderer_BeginFrame();
+}
+
+bool Renderer_EndFrame()
+{
+    return VulkanRenderer_EndFrame();
 }

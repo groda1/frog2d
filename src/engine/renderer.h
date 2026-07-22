@@ -6,6 +6,14 @@
 #include "mesh.h"
 #include "render_types.h"
 
+typedef struct
+{
+    u32 n_draw_calls;
+    u32 n_triangles;
+} render_stats_t;
+
+extern render_stats_t g_render_stats;
+
 bool Renderer_Init(arena_t *arena);
 
 window_extent_t Renderer_GetWindowExtent(void);
@@ -61,4 +69,6 @@ void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle
                                 buffer_object_handle_t instance_buffer, u32 instance_count,
                                 mesh_handle_t mesh);
 
+void Renderer_BeginFrame();
+bool Renderer_EndFrame();
 #endif

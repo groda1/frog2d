@@ -148,7 +148,7 @@ f32 Engine_BeginFrame(void)
         engine->frametime_sum_count = 0;
     }
 
-    VulkanRenderer_BeginFrame(); // Needs to be first
+    Renderer_BeginFrame(); // Needs to be first
     Draw_BeginFrame();
 
     Console_Update(delta_time);
@@ -162,10 +162,9 @@ void Engine_EndFrame(void)
     draw_stats();
 
     Console_Draw();
-
     Draw_EndFrame();
 
-    VulkanRenderer_EndFrame(); // Needs to be last
+    Renderer_EndFrame(); // Needs to be last
 }
 
 static void draw_version_label()
@@ -184,12 +183,15 @@ static void draw_stats()
     Draw_SetTextSize(16);
     Draw_SetTextColor(V4(1.0, 1.0, 1.0, 1.0));
 
-
     string fps_s = string_fmt(scratch.arena, "FPS: %u", s_engine.fps);
     string frametime_s = string_fmt(scratch.arena, "Frametime: %.3f ms", (s_engine.avg_frametime * 1000.0f));
+    string drawcalls_s = string_fmt(scratch.arena, "Draw calls: %u", g_render_stats.n_draw_calls);
+    string tricount_s = string_fmt(scratch.arena, "Triangles: %u", g_render_stats.n_triangles);
 
     Draw_Text(8, extent.height - 32, fps_s);
     Draw_Text(8, extent.height - 64, frametime_s);
+    Draw_Text(8, extent.height - 96, drawcalls_s);
+    Draw_Text(8, extent.height - 128, tricount_s);
 
     Scratch_End(scratch);
 }

@@ -181,9 +181,30 @@ class Animation:
         self.end = end
         self.frames = frames
         self.times = [(f - start) / fps for f in frames]
+        self.effective_hz = None
 
 
-def build_animations(scene, all_key_frames, fps):
+def sample_frames(start, end, scene_fps, sample_hz):
+    """Integer scene frames from start to end at ~sample_hz. Both endpoints
+    are always included even when they do not land on the cadence, so the
+    animation's extreme poses are exact. Returns (frames, effective_hz).
+
+    We do NOT sample the artist's authored keyframes: those drive Blender's
+    interpolation, and we freeze the evaluated (deformed) mesh at each frame
+    here. Sampling densely is what keeps morph lerp from turning rotations
+    into collapsing chords (see DESIGN)."""
+    f0 = int(round(start))
+    f1 = int(round(end))
+    if f1 <= f0:
+        return [f0], scene_fps
+    step = max(1, int(round(scene_fps / sample_hz)))
+    frames = list(range(f0, f1 + 1, step))
+    if frames[-1] != f1:
+        frames.append(f1)
+    return frames, scene_fps / step
+
+
+def build_animations(scene, all_key_frames, scene_fps, sample_hz):
     markers = sorted(scene.timeline_markers, key=lambda m: m.frame)
     keys = dedupe_frames(all_key_frames)
 
@@ -199,21 +220,24 @@ def build_animations(scene, all_key_frames, fps):
                 end = m.frame
             ranges.append((m.name, float(m.frame), float(end)))
     elif keys:
-        ranges = [("default", float(scene.frame_start), float(scene.frame_end))]
+        # no markers: the animated span is one "default" animation. Bounding
+        # by the authored keys (not scene_end) avoids sampling dead frames
+        # when the scene range is longer than the motion.
+        ranges = [("default", float(min(keys)), float(max(keys)))]
     else:
         # static model: synthesize the single-animation / single-keyframe
-        # wrapper (DESIGN: the loader recognizes this case)
+        # wrapper (DESIGN: the loader recognizes this case). Never sampled.
         return [Animation("static", float(scene.frame_start), float(scene.frame_start),
-                          [float(scene.frame_start)], fps)]
+                          [float(scene.frame_start)], scene_fps)]
 
     animations = []
     for name, start, end in ranges:
-        frames = [f for f in keys if start - KEY_MERGE_EPS <= f <= end + KEY_MERGE_EPS]
-        if not frames or abs(frames[0] - start) > KEY_MERGE_EPS:
-            frames.insert(0, start)
+        frames, eff_hz = sample_frames(start, end, scene_fps, sample_hz)
         if len(frames) > 0xFFFF:
             raise ExportError(f'animation "{name}": {len(frames)} keyframes exceeds u16')
-        animations.append(Animation(name, start, end, frames, fps))
+        anim = Animation(name, float(frames[0]), float(frames[-1]), frames, scene_fps)
+        anim.effective_hz = eff_hz
+        animations.append(anim)
     return animations
 
 
@@ -314,21 +338,39 @@ def parse_args():
     argv = argv[argv.index("--") + 1:] if "--" in argv else []
     out_path = None
     summary = False
-    for arg in argv:
+    sample_hz = 12.0
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
         if arg == "--summary":
             summary = True
+        elif arg == "--rate" or arg.startswith("--rate="):
+            if arg == "--rate":
+                i += 1
+                if i >= len(argv):
+                    raise ExportError("--rate needs a value in Hz")
+                value = argv[i]
+            else:
+                value = arg.split("=", 1)[1]
+            try:
+                sample_hz = float(value)
+            except ValueError:
+                raise ExportError(f"--rate: not a number: {value!r}")
+            if sample_hz <= 0.0:
+                raise ExportError("--rate must be positive")
         elif out_path is None:
             out_path = arg
         else:
             raise ExportError(f"unexpected argument: {arg}")
+        i += 1
     if out_path is None:
         blend = bpy.data.filepath
         out_path = (blend.rsplit(".", 1)[0] + ".frog") if blend else "model.frog"
-    return out_path, summary
+    return out_path, summary, sample_hz
 
 
 def export():
-    out_path, summary = parse_args()
+    out_path, summary, sample_hz = parse_args()
     scene = bpy.context.scene
     fps = scene.render.fps / scene.render.fps_base
 
@@ -337,6 +379,7 @@ def export():
     print(f" blend : {bpy.data.filepath or '(unsaved)'}")
     print(f" out   : {out_path}")
     print(f" scene : frames {scene.frame_start}..{scene.frame_end} @ {fps:.2f} fps")
+    print(f" sample: {sample_hz:g} Hz  (endpoints always captured)")
     print(" axes  : engine = (x, z, -y) of blender; winding reversed CCW -> CW")
     print("=" * 74)
 
@@ -366,15 +409,16 @@ def export():
         print("  (none — static model)")
 
     all_keys = [f for frames in key_frames.values() for f in frames]
-    animations = build_animations(scene, all_keys, fps)
+    animations = build_animations(scene, all_keys, fps, sample_hz)
     if len(animations) > 0xFFFF:
         raise ExportError("animation count exceeds u16")
 
-    print(f"animations ({len(animations)}):")
+    print(f"animations ({len(animations)}, baked at {sample_hz:g} Hz):")
     for anim in animations:
         shown = ", ".join(f"{f:g}" for f in anim.frames)
+        eff = f", ~{anim.effective_hz:.1f} Hz" if anim.effective_hz else ""
         print(f'  "{anim.name}"  frames {anim.start:g}..{anim.end:g}  '
-              f"{len(anim.frames)} keyframes at [{shown}]")
+              f"{len(anim.frames)} keyframes{eff} at [{shown}]")
     if len(animations) == 1 and len(animations[0].frames) == 1:
         print("  -> single animation, single keyframe: loader treats this as a static model")
 

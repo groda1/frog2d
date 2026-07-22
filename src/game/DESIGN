@@ -351,14 +351,30 @@ bob is keyframes on the head object). Consequences:
     smuggle shear into the "rigid" anchor.
   - Animations come from timeline markers: a marker names the
     animation starting at its frame and running to the frame before
-    the next marker (or scene end). An animation's keyframes are the
-    union of authored key frames across ALL scene objects in that
-    range (the range start is always a keyframe); keyframe time is
-    (frame - range_start) / scene fps. Blender's easing curves
-    between keys are deliberately flattened to the runtime lerp:
-    poses and timing are authored, easing is not. No markers: the
-    whole scene range is one animation ("default"); no keys at all
-    is the synthesized static single-keyframe case ("static").
+    the next marker (or scene end). No markers: the authored-key span
+    is one animation ("default"); no keys at all is the synthesized
+    static single-keyframe case ("static", never sampled).
+  - Keyframes are BAKED by sampling, not taken from the artist's
+    authored keys. The exporter steps the scene at a fixed cadence
+    (default 12 Hz, --rate to change) across each animation's range
+    and freezes the fully evaluated (armature- and modifier-deformed)
+    mesh at each step; the artist's sparse keys just drive Blender's
+    interpolation in between. The first and last frame of the range
+    are ALWAYS captured even when they fall between cadence steps, so
+    the extreme poses are exact (a short final interval is fine — the
+    runtime interpolates by each keyframe's stored time, not by
+    assuming uniform spacing). Keyframe time is
+    (frame - range_start) / scene fps, so cadence never affects
+    playback speed. Because integer frame stepping quantizes the rate
+    (step = round(scene_fps / rate)), the exporter reports the
+    effective Hz. Dense sampling is not optional polish: the runtime
+    lerps vertex positions in straight lines, so a large rotation
+    between two stored frames becomes a chord and the mesh collapses
+    toward the pivot mid-blend — the cadence must stay dense enough
+    that per-step rotation is small (chord ~ arc). It doubles as the
+    retro-chunkiness dial: lower it for the 90s look. Sampling also
+    captures Blender's easing for free, since each sampled pose is
+    the evaluated result at that instant.
   - Palette colors are read from each material's Principled BSDF
     Base Color (viewport diffuse color as fallback) and the viewport
     display specular color; faces with no material get a synthesized
