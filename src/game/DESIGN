@@ -244,8 +244,9 @@ ordinary per-draw uniform, not through the vertex-blend path.
 The anchor is rigid — position + orientation only, no scale — and is
 exported in the model's local space (the same space as the vertices).
 So a weapon's size cannot come from the tag; weapons are authored at
-final real-world scale relative to the wielder, and object transforms
-are applied before export (object scale = 1, baked into the mesh). One
+final real-world scale relative to the wielder, and the exporter bakes
+object transforms into the vertices (nothing survives into the file as
+a transform — see the Blender authoring model below). One
 consequence falls out for free: a per-entity UNIFORM scale in
 player_world_matrix (a giant, a rat) flows into both the arm-offset and
 the weapon mesh, so a held weapon scales with its wielder automatically.
@@ -262,16 +263,34 @@ walks the scene and writes this format directly — mesh, every animation,
 and the anchor transforms per keyframe — with no OBJ intermediate and no
 separate bake step: the exported file IS the runtime format.
 
-Key structural decision: topology and non-animated attributes are stored
-ONCE per model, not per keyframe. Morph interpolation blends vertex i of
-frame A with vertex i of frame B, so every keyframe MUST share the same
-vertex count and index buffer — storing them per frame would be
-redundant and a correctness trap. The split also matches how the data
-reaches the GPU: the animated attributes (position, normal) are exactly
-the two per-frame vertex buffers the shader blends, while the constant
-attributes (the per-vertex material index) and the index buffer are uploaded once and bound
-for every frame. Anchor names are likewise fixed per model; only each
-anchor's transform is per keyframe.
+Key structural decision: the format is committed to flat shading —
+already the game's stated aesthetic — and that commitment cascades.
+Flat-shaded neighbors never share vertices (each face needs its own
+normal), so a flat-shaded mesh is exactly three unique vertices per
+triangle. Two things follow:
+
+  - NO index buffer. Indexing unshared vertices is the identity
+    mapping — pure overhead. Geometry is a non-indexed triangle list,
+    drawn unindexed; triangle_count is the mesh's one size field.
+    (Coplanar neighbors could technically still share vertices, but
+    the saving is marginal and not worth a second path.)
+  - NO stored normals. A flat normal is fully determined by its
+    triangle's three positions, so keyframes store positions only and
+    the loader computes each keyframe's normals at load. This halves
+    the file's dominant cost, the per-keyframe vertex data.
+
+The per-frame / per-model split stays; its invariant is now: every
+keyframe stores the same triangle count in the same order, because
+morph interpolation blends corner i of frame A with corner i of frame
+B. Everything else — the material palette, the per-triangle material
+indices, anchor names — is stored once per model; only positions and
+anchor transforms are per keyframe. The GPU path is unchanged by
+normals leaving the file: the loader still builds position+normal
+keyframe buffers for the shader to blend, the normals just come from
+the loader instead of the exporter. (If the renderer later derives
+flat normals in the fragment shader from screen-space derivatives,
+normals leave the GPU buffers too — a renderer decision that never
+touches the format.)
 
 Consequences of that split, stated so exporter and loader agree:
 
@@ -286,19 +305,64 @@ Consequences of that split, stated so exporter and loader agree:
   - The .frog carries no sampled texture: surface color comes entirely
     from a per-model material palette. Each material is a named slot
     (skin, hair, eyes, ...) with a default base_color and specular_color,
-    and every vertex stores a u8 index into that palette. The palette
+    and every TRIANGLE stores a u8 index into that palette — material is
+    a per-face property under flat shading (Blender assigns materials
+    per face too), so per-vertex storage would just triplicate it. The palette
     colors in the file are DEFAULTS: a per-entity recolor (dynamic hair,
     tinted monster variants) overrides individual slots at runtime via the
     display-data table, so one model stays reusable across recolors. Slots
     are resolved by name, never by fixed index, so reordering materials in
     Blender cannot silently break a recolor. There is no submesh split —
-    one draw covers the whole model and the shader looks up base/specular
-    per vertex from the palette. Procedural surface detail (noise for a
+    one draw covers the whole model; the loader expands the per-triangle
+    index to per-vertex when building the constant vertex buffer
+    (uploaded once, bound for every frame) and the shader looks up
+    base/specular from the palette. Procedural surface detail (noise for a
     rough look) is a shader effect driven by object-space position, not a
     texture — if added it becomes a per-material flag and still needs no
     UVs.
   - Loop policy is deliberately NOT in the format. The client decides
     per animation (walk loops; attack/death play once) by animation id.
+
+Blender authoring model (decided): a model may be any number of mesh
+objects (head, torso, legs as separate objects); the exporter flattens
+them into the single triangle list. Joining objects in Blender is
+neither required nor wanted: it destroys authoring structure for zero
+gain, and separate objects keep simple animations object-level (a head
+bob is keyframes on the head object). Consequences:
+
+  - The exporter bakes each object's evaluated world transform into
+    its vertices at every sampled keyframe. No apply-transform
+    discipline for the artist, and object-level animation falls out
+    for free — it is just the world transform changing over time.
+  - Object order in the file is fixed (sorted by object name), and
+    every keyframe samples the same objects with the same topology —
+    corner correspondence across keyframes is what morphing relies
+    on. The exporter fails the export if the evaluated triangle count
+    differs between keyframes (an animated topology-changing modifier
+    would otherwise corrupt morphing silently).
+  - Material palettes merge across objects by slot name: two objects
+    both using "skin" share one palette slot — consistent with slots
+    resolving by name everywhere else.
+  - Anchors are scene-level: an empty is exported by its evaluated
+    world transform (converted to engine space, same space as the
+    baked vertices) no matter which object it is parented to. The
+    exporter fails the export if that matrix is not rigid — a
+    non-uniform scale anywhere in the empty's parent chain would
+    smuggle shear into the "rigid" anchor.
+  - Animations come from timeline markers: a marker names the
+    animation starting at its frame and running to the frame before
+    the next marker (or scene end). An animation's keyframes are the
+    union of authored key frames across ALL scene objects in that
+    range (the range start is always a keyframe); keyframe time is
+    (frame - range_start) / scene fps. Blender's easing curves
+    between keys are deliberately flattened to the runtime lerp:
+    poses and timing are authored, easing is not. No markers: the
+    whole scene range is one animation ("default"); no keys at all
+    is the synthesized static single-keyframe case ("static").
+  - Palette colors are read from each material's Principled BSDF
+    Base Color (viewport diffuse color as fallback) and the viewport
+    display specular color; faces with no material get a synthesized
+    "default" slot.
 
 Conventions: little-endian; fields packed, no padding; a string is a
 u16 byte length followed by that many UTF-8 bytes, no null terminator;
@@ -310,16 +374,26 @@ Exporter / loader contract:
   - Positions are in engine space: Blender's Z-up right-handed is
     converted to the engine's Y-up right-handed (HMM_LookAt_RH) on
     export.
-  - Indices are a triangle list; the front face is CLOCKWISE, to match
-    the renderer (VK_FRONT_FACE_CLOCKWISE + back-face cull; the CW choice
-    comes from Vulkan's flipped-Y clip space). Blender and the graphics
-    default are CCW, so the exporter reverses each triangle's winding on
-    export — the loader stays dumb, same net result as the OBJ loader
-    reversing at load today.
-  - Quaternions are stored xyzw, normalized (Blender's wxyz reordered).
-  - The stream is packed, so fields land unaligned (vertex_count is at
-    byte 10). The loader copies each field out (memcpy into aligned GPU
-    buffers) and must NOT cast a pointer into the mapped file.
+  - Geometry is a non-indexed triangle list; the front face is
+    CLOCKWISE, to match the renderer (VK_FRONT_FACE_CLOCKWISE +
+    back-face cull; the CW choice comes from Vulkan's flipped-Y clip
+    space). Blender and the graphics default are CCW, so the exporter
+    reverses each triangle's winding (writes its three vertices in
+    reverse order) on export — the loader stays dumb, same net result
+    as the OBJ loader reversing at load today.
+  - Normals are not stored. Per keyframe, the loader derives each
+    triangle's flat normal from its stored corners —
+    normalize(cross(v2 - v0, v1 - v0)), the sign that points outward
+    given the CW winding — and assigns it to all three vertices. The
+    exporter must drop zero-area triangles so this never normalizes a
+    zero vector.
+  - Quaternions are stored xyzw, normalized (Blender's wxyz
+    reordered). The exporter flips signs where needed so an anchor's
+    consecutive keyframe quats stay in the same hemisphere and the
+    runtime slerp always takes the short arc.
+  - The stream is packed, so fields land unaligned (triangle_count is
+    at byte 10). The loader copies each field out (memcpy into aligned
+    GPU buffers) and must NOT cast a pointer into the mapped file.
   - Per-keyframe anchor transforms correspond positionally to the
     header's anchor-name list; the name is not repeated per keyframe.
   - No bounding volume yet; add one via a version bump when culling
@@ -328,13 +402,10 @@ Exporter / loader contract:
     FILE
       magic              u8[8]      "FROGMODL"
       version            u16
-      vertex_count       u32        N  — shared by every keyframe
-      index_count        u32        I
+      triangle_count     u32        T  — 3·T unshared vertices; shared by every keyframe
       material_count     u16        P
       anchor_count       u16        A
       animation_count    u16        M
-
-      indices            u32[I]
 
       materials  × material_count (P):
           name_len       u16
@@ -342,7 +413,7 @@ Exporter / loader contract:
           base_color     f32[3]     12
           specular_color f32[3]     12
 
-      constant vertex attributes  × vertex_count (N):     [1 byte each]
+      triangle materials  × triangle_count (T):           [1 byte each]
           material       u8         1        index into the palette above
 
       anchor names  × anchor_count (A):
@@ -357,9 +428,8 @@ Exporter / loader contract:
           keyframes  × keyframe_count (K):
               time       f32        seconds; 0.0 for the first keyframe
 
-              animated vertex attributes  × vertex_count (N):  [24 bytes each]
+              positions  × 3·T vertices, CW winding:           [12 bytes each]
                   position   f32[3]     12
-                  normal     f32[3]     12
 
               anchor transforms  × anchor_count (A):           [28 bytes each]
                   position     f32[3]   12
