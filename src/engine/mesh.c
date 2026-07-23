@@ -29,11 +29,12 @@ typedef struct
 
 typedef struct
 {
-    arena_t *arena;
     const mesh_t *predefined[PREDEFINED_MESH_COUNT];
 } mesh_collection_t;
 
 static mesh_collection_t *s_meshes;
+
+extern arena_t *g_engine_arena;
 
 static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size);
 static VkBuffer create_static_index_buffer(const u32 *indices, u32 index_count);
@@ -44,10 +45,11 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out);
 static mesh_t *create_mesh(VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count);
 static void load_predefined_meshes(void);
 
-bool MeshManager_Init(arena_t *arena)
+bool MeshManager_Init()
 {
-    s_meshes = arena_push(arena, mesh_collection_t);
-    s_meshes->arena = arena;
+    Assert(g_engine_arena != NULL);
+
+    s_meshes = arena_push(g_engine_arena, mesh_collection_t);
 
     load_predefined_meshes();
 
@@ -79,7 +81,7 @@ mesh_handle_t MeshManager_LoadMesh(string path) // TODO CANNOT BE STRING
 
     if (extension.len == 0)
     {
-        Log(ERROR, "unknown file type: %.*s", (int)path.len, path.str);
+        Log(ERROR, "unknown file type: %S", path);
         return MESH_INVALID_HANDLE;
     }
 
@@ -92,7 +94,7 @@ mesh_handle_t MeshManager_LoadMesh(string path) // TODO CANNOT BE STRING
         return create_mesh(mesh.vertex_buffer, mesh.index_buffer, mesh.index_count);
     }
 
-    Log(ERROR, "failed to load mesh: %.*s", (int)path.len, path.str);
+    Log(ERROR, "failed to load mesh: %S", path);
     return MESH_INVALID_HANDLE;
 }
 
@@ -191,7 +193,7 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
     u64 start_ns = OS_TimeNowNs();
     bool result = false;
 
-    scratch_t scratch = Scratch_Begin(s_meshes->arena);
+    scratch_t scratch = Scratch_Begin(g_engine_arena);
 
     char full_path[MAX_RESOURCE_PATH];
     snprintf(full_path, sizeof(full_path), "%s%.*s", OS_GetBasePath(), (int)path.len, path.str);
@@ -358,7 +360,7 @@ exit:
 
 static mesh_t *create_mesh(VkBuffer vertex_buffer, VkBuffer index_buffer, u32 index_count)
 {
-    mesh_t *mesh = arena_push(s_meshes->arena, mesh_t);
+    mesh_t *mesh = arena_push(g_engine_arena, mesh_t);
     mesh->vertex_buffer = vertex_buffer;
     mesh->index_buffer = index_buffer;
     mesh->index_count = index_count;

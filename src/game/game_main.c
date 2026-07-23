@@ -6,10 +6,12 @@
 #include "engine_main.h"
 #include "engine_types.h"
 #include "game_main.h"
+#include "memory_arena.h"
 #include "mesh.h"
 #include "platform.h"
 #include "render_types.h"
 #include "renderer.h"
+#include "frog.h"
 
 /* milestone 0 sandbox: a grid and a movable cube, for tuning camera and feel */
 
@@ -50,6 +52,8 @@ typedef enum
 
 typedef struct
 {
+    arena_t *arena;
+
     mesh_handle_t cube_mesh;
     mesh_handle_t player_mesh;
     pipeline_handle_t tile_pipeline;
@@ -92,6 +96,8 @@ bool Game_Init(platform_window_t *window)
 {
     if (!Engine_Init(window))
         return false;
+
+    g_game.arena = MemoryArena_Create("game-main-arena");
 
     g_game.cube_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_NORMALED_CUBE);
 
@@ -184,12 +190,18 @@ bool Game_Init(platform_window_t *window)
     g_game.player_gfx_target_rot = g_game.player_gfx_rot;
     g_game.camera_target = g_game.player_gfx_pos;
 
+    Frog_LoadModel("resources/models/test_model.frog");
+
     return true;
 }
 
 void Game_Destroy(void)
 {
     Engine_Destroy();
+
+    MemoryArena_Print(g_game.arena);
+    MemoryArena_Destroy(g_game.arena);
+
 }
 
 void Game_HandleKeyDown(key_code_t key)

@@ -13,25 +13,24 @@
 
 #define MAX_RESOURCE_PATH 512
 
-static arena_t *s_arena;
 render_stats_t g_render_stats = {};
 
-bool Renderer_Init(arena_t *arena)
-{
-    s_arena = arena;
+extern arena_t *g_engine_arena;
 
+bool Renderer_Init()
+{
     return true;
 }
 
 shader_code_t Renderer_LoadShader(const char *path)
 {
-    Assert(s_arena != NULL);
+    Assert(g_engine_arena != NULL);
 
     char full_path[MAX_RESOURCE_PATH];
     snprintf(full_path, sizeof(full_path), "%s%s", OS_GetBasePath(), path);
 
     shader_code_t shader = {0};
-    shader.code = File_Read(s_arena, full_path, &shader.size);
+    shader.code = File_Read(g_engine_arena, full_path, &shader.size);
 
     return shader;
 }

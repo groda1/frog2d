@@ -7,4 +7,5 @@ engine_sources += files(
     'draw.c',
     'renderer.c',
     'console.c',
+    'frog.c',
 )

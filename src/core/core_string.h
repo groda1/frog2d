@@ -26,6 +26,7 @@ typedef struct
 
 #define string_lit(S)  string_from_l((const char*)(S), sizeof(S) - 1)
 
+inline string string_empty() { return (string){}; }
 string string_new(arena_t *arena, u64 capacity);
 string string_from_l(const char *str, u64 len);
 string string_from(const char *str);

@@ -70,7 +70,7 @@ struct _textured_normal_vertex_t
     vec2 texture_coord;
 };
 
-bool MeshManager_Init(arena_t *arena);
+bool MeshManager_Init();
 
 mesh_handle_t MeshManager_GetPredefinedMesh(predefined_mesh_t mesh);
 

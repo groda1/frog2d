@@ -115,7 +115,7 @@ bool VulkanRenderer_Init(arena_t *arena, platform_window_t *window)
     s_renderer = arena_push(arena, vk_renderer_t);
 
     s_renderer->global_arena =      arena;
-    s_renderer->frame_arena =       MemoryArena_CreateP("frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
+    s_renderer->frame_arena =       MemoryArena_CreateP("vk-frame-arena", (arena_params_t){.reserve_size = MB(4), .commit_size = KB(64)});
 
     log_instance_layer_properties();
 
@@ -342,7 +342,6 @@ pipeline_handle_t VulkanRenderer_AddPipeline(renderpass_handle_t pass_handle,
 
 VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
 {
-    // TODO remove function
     VkBuffer buffer = VulkanBuffer_CreateStatic(
         s_renderer->command_pool, s_renderer->queue_families.graphics_queue, vertices, size,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -352,7 +351,6 @@ VkBuffer VulkanRenderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
 
 VkBuffer VulkanRenderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count)
 {
-    // TODO remove function
     VkBuffer buffer = VulkanBuffer_CreateStatic(
         s_renderer->command_pool, s_renderer->queue_families.graphics_queue, (const u8 *)indices,
         index_count * sizeof(u32), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);

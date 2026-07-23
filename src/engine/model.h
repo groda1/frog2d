@@ -1,76 +1,61 @@
+#ifndef MODEL_H
+#define MODEL_H
+
 #include "core.h"
 #include "core_math.h"
 #include "core_string.h"
 
-/*
- *
- * FILE
- *   magic              u8[8]      "FROGMODL"
- *   version            u16
- *   triangle_count     u32        T  — 3·T unshared vertices; shared by every keyframe
- *   material_count     u16        P
- *   anchor_count       u16        A
- *   animation_count    u16        M
- *
- *   materials  × material_count (P):
- *       name_len       u16
- *       name           u8[name_len]        slot name: "skin", "hair", ...
- *       base_color     f32[3]     12
- *       specular_color f32[3]     12
- *
- *   triangle materials  × triangle_count (T):           [1 byte each]
- *       material       u8         1        index into the palette above
- *
- *   anchor names  × anchor_count (A):
- *       name_len       u16
- *       name           u8[name_len]
- *
- *   animations  × animation_count (M):
- *       name_len       u16
- *       name           u8[name_len]
- *       keyframe_count u16        K
- *
- *       keyframes  × keyframe_count (K):
- *           time       f32        seconds; 0.0 for the first keyframe
- *
- *           positions  × 3·T vertices, CW winding:           [12 bytes each]
- *               position   f32[3]     12
- *
- *           anchor transforms  × anchor_count (A):           [28 bytes each]
- *               position     f32[3]   12
- *               orientation  f32[4]   16   quat, xyzw
- */
+#include "mesh.h"
 
-typedef struct {
+#define MODEL_INVALID_HANDLE NULL
+
+typedef struct _model_t             model_t;
+typedef struct _model_material_t    model_material_t;
+typedef struct _model_keyframe_t    model_keyframe_t;
+typedef struct _model_anchor_t      model_anchor_t;
+typedef struct _model_animation_t   model_animation_t;
+
+typedef const model_t *model_handle_t;
+
+#
+
+struct _model_material_t
+{
     string name;
     vec3 base_color;
     vec3 specular_color;
-} model_material_t;
+};
 
+struct _model_anchor_t
+{
+    vec3 pos;
+    quat orientation;
+};
 
-
-typedef struct {
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
-    u32 index_count;
-
+struct _model_keyframe_t {
+    f32 time_s;
+    mesh_handle_t mesh;
     model_anchor_t *anchors;
+};
 
-} model_keyframe_t;
-
-typedef struct {
+struct _model_animation_t
+{
     string name;
     u16 keyframe_count;
 
+    model_keyframe_t *keyframes;
+};
 
-} model_animation_t;
-
-typedef struct {
-
+struct _model_t
+{
+    u16 material_count;
     u16 anchor_count;
     u16 animation_count;
 
+    model_material_t *materials;
+    string *anchor_names;
+    model_animation_t *animations;
+};
 
 
-
-} model_t;
+#endif

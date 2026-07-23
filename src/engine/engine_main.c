@@ -18,9 +18,11 @@
 
 #define FPS_LIMIT               240         // 0 = uncapped
 
+arena_t *g_engine_arena = NULL;
+arena_t *g_scratch = NULL;
+
 typedef struct
 {
-    arena_t *arena;
 
     u64 last_time_ns;
     u64 next_frame_ns;
@@ -44,20 +46,21 @@ static void draw_stats();
 
 bool Engine_Init(platform_window_t *window)
 {
-    s_engine.arena = MemoryArena_CreateP("engine-arena",
+    g_engine_arena = MemoryArena_CreateP("engine-arena",
         (arena_params_t) {
             .commit_size = MB(1),
             .reserve_size = MB(8)}
     );
+    g_scratch = MemoryArena_Create("global-scratch");
     s_engine.last_time_ns = OS_TimeNowNs();
 
-    if (!VulkanRenderer_Init(s_engine.arena, window))
+    if (!VulkanRenderer_Init(g_engine_arena, window))
         goto fail;
 
-    if (!Renderer_Init(s_engine.arena))
+    if (!Renderer_Init())
         goto fail_renderer;
 
-    if (!MeshManager_Init(s_engine.arena))
+    if (!MeshManager_Init())
         goto fail_renderer;
 
     if (!Draw_Init())
@@ -71,8 +74,10 @@ bool Engine_Init(platform_window_t *window)
 fail_renderer:
     VulkanRenderer_Destroy();
 fail:
-    MemoryArena_Destroy(s_engine.arena);
-    s_engine.arena = NULL;
+    MemoryArena_Destroy(g_scratch);
+    g_scratch = NULL;
+    MemoryArena_Destroy(g_engine_arena);
+    g_engine_arena = NULL;
     return false;
 }
 
@@ -81,9 +86,13 @@ void Engine_Destroy(void)
     Draw_Destroy();
     VulkanRenderer_Destroy();
 
-    MemoryArena_Print(s_engine.arena);
-    MemoryArena_Destroy(s_engine.arena);
-    s_engine.arena = NULL;
+    MemoryArena_Print(g_scratch);
+    MemoryArena_Destroy(g_scratch);
+    g_scratch = NULL;
+
+    MemoryArena_Print(g_engine_arena);
+    MemoryArena_Destroy(g_engine_arena);
+    g_engine_arena = NULL;
 }
 
 void Engine_HandleResize(u32 width, u32 height)
@@ -178,7 +187,7 @@ static void draw_version_label()
 static void draw_stats()
 {
     window_extent_t extent = Renderer_GetWindowExtent();
-    scratch_t scratch = Scratch_Begin(s_engine.arena);
+    scratch_t scratch = Scratch_Begin(g_engine_arena);
 
     Draw_SetTextSize(16);
     Draw_SetTextColor(V4(1.0, 1.0, 1.0, 1.0));

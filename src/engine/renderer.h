@@ -1,8 +1,6 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
-#include "memory_arena.h"
-
 #include "mesh.h"
 #include "render_types.h"
 
@@ -14,7 +12,7 @@ typedef struct
 
 extern render_stats_t g_render_stats;
 
-bool Renderer_Init(arena_t *arena);
+bool Renderer_Init();
 
 window_extent_t Renderer_GetWindowExtent(void);
 
