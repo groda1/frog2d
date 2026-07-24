@@ -94,4 +94,9 @@ struct _pipeline_config_t
     // TODO vertex topology (always triangle list for now)
 };
 
+typedef struct
+{
+    u64 __instance_data_address; /* storage buffer device address, filled in by the renderer */
+} sbo_push_constant_t;
+
 #endif

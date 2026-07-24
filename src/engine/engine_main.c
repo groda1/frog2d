@@ -16,7 +16,7 @@
 #define MAX_FRAMETIME_SAMPLES   512
 #define SAMPLE_WINDOW_S         0.2f
 
-#define FPS_LIMIT               240         // 0 = uncapped
+#define FPS_LIMIT               500         // 0 = uncapped
 
 arena_t *g_engine_arena = NULL;
 arena_t *g_scratch = NULL;
@@ -127,13 +127,14 @@ f32 Engine_BeginFrame(void)
     u64 now_ns = OS_TimeNowNs();
     if (FPS_LIMIT > 0)
     {
+        u64 fps_limit = FPS_LIMIT;
         if (now_ns < engine->next_frame_ns)
         {
             OS_SleepNs(engine->next_frame_ns - now_ns);
             now_ns = OS_TimeNowNs();
         }
 
-        engine->next_frame_ns += NS_PER_SECOND / FPS_LIMIT;
+        engine->next_frame_ns += NS_PER_SECOND / fps_limit;
         if (engine->next_frame_ns < now_ns)
             engine->next_frame_ns = now_ns;
     }

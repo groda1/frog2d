@@ -13,8 +13,6 @@
 #define FONT_ATLAS_ROWS       6
 #define FONT_ATLAS_FIRST_CHAR 32
 
-/* layout of 2d_ssbo.vert's instance_data (std430, 64-byte stride; vec4
-   color is 16-aligned on both sides) */
 typedef struct
 {
     vec2 position;
@@ -25,12 +23,11 @@ typedef struct
     texture_handle_t texture;
     u32  text;
 } quad_instance_t;
-
 StaticAssert(sizeof(quad_instance_t) == 64, "quad_instance_t must match the shader's std430 stride");
 
 typedef struct
 {
-    u64 __instance_data_address; /* storage buffer device address, filled in by the renderer */
+    sbo_push_constant_t sbo;
 } push_constant_t;
 
 

@@ -1,7 +1,7 @@
 fs = import('fs')
 
 resource_targets = []
-foreach t : ['suzanne.obj', 'sphere.obj', 'cube.frog', 'human.frog']
+foreach t : ['cube.frog', 'human.frog']
     resource_targets += fs.copyfile(t)
 endforeach
 

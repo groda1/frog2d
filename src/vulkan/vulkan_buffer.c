@@ -274,11 +274,14 @@ bool VulkanBuffer_PushObjectData(buffer_object_handle_t handle, const void *data
     }
 
     buffer_object_t *object = get_buffer_object(handle);
-    if (object->cpu_buf_len + size > object->capacity &&
-        !grow_object(object, object->cpu_buf_len + size))
+    if (object->cpu_buf_len + size > object->capacity)
     {
-        Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", object->cpu_buf_len + size, object->capacity);
-        return false;
+        if (!grow_object(object, object->cpu_buf_len + size))
+        {
+            Log(ERROR, "buffer object data exceeds capacity (%ju > %ju)", object->cpu_buf_len + size, object->capacity);
+            return false;
+        }
+        Log(DEBUG, "grew cpu buffer sbo=%u newsize=%u", handle, object->capacity);
     }
 
     MemoryCopy(object->cpu_buf + object->cpu_buf_len, data, size);

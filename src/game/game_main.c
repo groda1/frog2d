@@ -14,12 +14,11 @@
 #include "renderer.h"
 #include "frog.h"
 
-#define GRID_WIDTH              48
-#define GRID_HEIGHT             32
+#define GRID_WIDTH              256
+#define GRID_HEIGHT             256
 #define TILE_GAP                0.0f
-#define TILE_THICKNESS          0.3f
-#define TILE_COLOR_A            V4(0.30f, 0.32f, 0.28f, 1.0f)
-#define TILE_COLOR_B            V4(0.23f, 0.25f, 0.22f, 1.0f)
+#define TILE_COLOR_A            V4(0.30f, 0.42f, 0.28f, 1.0f)
+#define TILE_COLOR_B            V4(0.23f, 0.35f, 0.22f, 1.0f)
 
 #define PLAYER_SIZE             0.7f
 #define PLAYER_COLOR            V4(0.9f, 0.5f, 0.2f, 1.0f)
@@ -51,9 +50,21 @@
 
 typedef struct
 {
+    sbo_push_constant_t sbo;
+} tile_push_constant_t;
+
+typedef struct
+{
     mat4 transform;
     vec4 color;
-} flat_push_constant_t;
+} tile_instance_t;
+StaticAssert(sizeof(tile_instance_t) == 80, "quad_instance_t must match the shader's std430 stride");
+
+typedef struct
+{
+    mat4 transform;
+    vec4 color;
+} player_push_constant_t;
 
 typedef enum
 {
@@ -82,12 +93,17 @@ typedef struct
     arena_t *arena;
 
     mesh_handle_t cube_mesh;
+    mesh_handle_t quad_mesh;
     mesh_handle_t player_mesh;
     model_handle_t player_model;
 
     pipeline_handle_t tile_pipeline;
+    buffer_object_handle_t tile_sbo;
+
     pipeline_handle_t player_pipeline;
+
     buffer_object_handle_t vp_uniform;
+
 
     i32 player_pos_x;
     i32 player_pos_y;
@@ -136,7 +152,7 @@ bool Game_Init(platform_window_t *window)
     g_game.arena = MemoryArena_Create("game-main-arena");
 
     g_game.cube_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_NORMALED_CUBE);
-
+    g_game.quad_mesh = MeshManager_GetPredefinedMesh(PREDEFINED_MESH_NORMALED_QUAD);
     g_game.vp_uniform = Renderer_CreateUniformBuffer(sizeof(view_projection_t),
                                                      UNIFORM_STAGE_VERTEX);
     if (g_game.vp_uniform == BUFFER_OBJECT_HANDLE_INVALID)
@@ -148,16 +164,21 @@ bool Game_Init(platform_window_t *window)
 
     pipeline_config_t tile_pipeline_config = {
         .name = "grid-tile",
-        .vertex_shader = Renderer_LoadShader("shaders/flat_color.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/flat_color.frag.spv"),
-        .push_constant_size = sizeof(flat_push_constant_t),
+        .vertex_shader = Renderer_LoadShader("shaders/tile.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/tile.frag.spv"),
+        .push_constant_size = sizeof(tile_push_constant_t),
         .vertex_stride = sizeof(normal_vertex_t),
-        .vertex_attribute_count = 1,
+        .vertex_attribute_count = 2,
         .vertex_attributes = {
             {
                 .location = 0,
                 .format = VERTEX_FORMAT_F32X3,
                 .offset = offsetof(normal_vertex_t, position),
+            },
+            {
+                .location = 1,
+                .format = VERTEX_FORMAT_F32X3,
+                .offset = offsetof(normal_vertex_t, normal),
             },
         },
         .uniform_binding_count = 1,
@@ -169,6 +190,7 @@ bool Game_Init(platform_window_t *window)
             },
         },
     };
+    g_game.tile_sbo = Renderer_CreateStorageBuffer(KB(64));
 
     g_game.tile_pipeline = Renderer_AddPipeline(SWAPCHAIN_PASS_HANDLE, &tile_pipeline_config);
     if (g_game.tile_pipeline == PIPELINE_HANDLE_INVALID)
@@ -182,7 +204,7 @@ bool Game_Init(platform_window_t *window)
         .name = "player",
         .vertex_shader = Renderer_LoadShader("shaders/frog_player.vert.spv"),
         .fragment_shader = Renderer_LoadShader("shaders/frog_player.frag.spv"),
-        .push_constant_size = sizeof(flat_push_constant_t),
+        .push_constant_size = sizeof(player_push_constant_t),
         .vertex_stride = sizeof(normal_material_vertex_t),
         .vertex_attribute_count = 2,
         .vertex_attributes = {
@@ -415,9 +437,7 @@ static camera_rig_t camera_rig_for(camera_mode_t mode, f32 aspect)
 {
     game_t *game = &g_game;
 
-    camera_rig_t rig = {
-        .up = V3(0.0f, 1.0f, 0.0f),
-    };
+    camera_rig_t rig;
 
     switch (mode)
     {
@@ -430,6 +450,7 @@ static camera_rig_t camera_rig_for(camera_mode_t mode, f32 aspect)
                                    CAMERA_CLOSEUP_DISTANCE));
             rig.look = HMM_AddV3(game->player_gfx_pos,
                                  V3(0.0f, CAMERA_CLOSEUP_LOOK_HEIGHT, 0.0f));
+            rig.up = V3(0.0f, 1.0f, 0.0f);
             rig.proj = HMM_Perspective_RH_ZO(HMM_AngleDeg(CAMERA_CLOSEUP_FOV_DEG),
                                              aspect, CAMERA_NEAR, CAMERA_FAR);
             break;
@@ -465,6 +486,7 @@ static camera_rig_t camera_rig_for(camera_mode_t mode, f32 aspect)
                                    HMM_SinF(pitch) * CAMERA_DEFAULT_DISTANCE,
                                    HMM_CosF(pitch) * CAMERA_DEFAULT_DISTANCE));
             rig.look = game->camera_target;
+            rig.up = V3(0.0f, 1.0f, 0.0f);
             rig.proj = HMM_Perspective_RH_ZO(HMM_AngleDeg(CAMERA_DEFAULT_FOV_DEG),
                                              aspect, CAMERA_NEAR, CAMERA_FAR);
             break;
@@ -529,26 +551,48 @@ static void update_camera(f32 delta_time)
 
 static void draw_grid(void)
 {
-    flat_push_constant_t push_constant;
-    mat4 scale = HMM_Scale(V3(1.0f - TILE_GAP, TILE_THICKNESS, 1.0f - TILE_GAP));
+    tile_push_constant_t push_constant = {};
 
-    for (i32 z = 0; z < GRID_HEIGHT; z++)
+    Renderer_ClearBufferObject(g_game.tile_sbo);
+
+    mat4 scale = HMM_Scale(V3(1.0f - TILE_GAP, 1.0f, 1.0f - TILE_GAP));
+    mat4 rotation = HMM_Rotate_RH(HMM_AngleDeg(-90), V3(1.0f, 0.0f, 0.0f));
+    u64 instance_count = 0;
+
+    i32 start_x =   ClampBot(0, g_game.player_pos_x - 20);
+    i32 end_x =     ClampTop(g_game.player_pos_x + 20, GRID_WIDTH);
+    i32 start_y =   ClampBot(0, g_game.player_pos_y - 12);
+    i32 end_y =     ClampTop(g_game.player_pos_y + 12, GRID_HEIGHT);
+
+    for (i32 y = start_y; y < end_y; y++)
     {
-        for (i32 x = 0; x < GRID_WIDTH; x++)
+        for (i32 x = start_x; x < end_x; x++)
         {
-            vec3 center = tile_center(x, z);
+            vec3 center = tile_center(x, y);
 
-            push_constant.transform = HMM_MulM4(HMM_Translate(center), scale);
-            push_constant.color = ((x + z) & 1) ? TILE_COLOR_A : TILE_COLOR_B;
-            Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.tile_pipeline,
-                              &push_constant, g_game.cube_mesh);
+            tile_instance_t instance = {
+                .transform = HMM_MulM4(
+                                HMM_Translate(center),
+                                HMM_MulM4(
+                                    rotation,
+                                    scale)),
+                .color = ((x + y) & 1) ? TILE_COLOR_A : TILE_COLOR_B,
+            };
+
+            Renderer_PushBufferObject(g_game.tile_sbo, &instance, sizeof(instance));
+            instance_count++;
         }
     }
+    Renderer_DrawMeshInstanced(SWAPCHAIN_PASS_HANDLE,
+        g_game.tile_pipeline,
+        &push_constant,
+        g_game.tile_sbo,
+        instance_count, g_game.quad_mesh);
 }
 
 static void draw_player(void)
 {
-    flat_push_constant_t push_constant = {
+    player_push_constant_t push_constant = {
         .transform = HMM_MulM4(
                         HMM_Translate( g_game.player_gfx_pos),
                         HMM_MulM4(
@@ -565,7 +609,7 @@ static void draw_player(void)
 
 static vec3 tile_center(i32 x, i32 y)
 {
-    return V3((f32)x + 0.5f, -TILE_THICKNESS / 2.0f, (f32)-y + 0.5f);
+    return V3((f32)x + 0.5f, 0.0f, (f32)-y + 0.5f);
 }
 
 static vec3 player_center(i32 x, i32 y)
