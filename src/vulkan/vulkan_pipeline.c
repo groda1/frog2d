@@ -6,6 +6,7 @@
 #include "vulkan_context.h"
 #include "vulkan_pipeline.h"
 #include "vulkan_texture.h"
+#include <vulkan/vulkan_core.h>
 
 static VkFormat vertex_format_to_vk(vertex_format_t format);
 static VkShaderStageFlags uniform_stage_to_vk(uniform_stage_t stage);
@@ -355,14 +356,16 @@ static VkFormat vertex_format_to_vk(vertex_format_t format)
 {
     switch (format)
     {
-    case VERTEX_FORMAT_F32:
-        return VK_FORMAT_R32_SFLOAT;
-    case VERTEX_FORMAT_F32X2:
-        return VK_FORMAT_R32G32_SFLOAT;
-    case VERTEX_FORMAT_F32X3:
-        return VK_FORMAT_R32G32B32_SFLOAT;
-    case VERTEX_FORMAT_F32X4:
-        return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case VERTEX_FORMAT_F32:
+            return VK_FORMAT_R32_SFLOAT;
+        case VERTEX_FORMAT_F32X2:
+            return VK_FORMAT_R32G32_SFLOAT;
+        case VERTEX_FORMAT_F32X3:
+            return VK_FORMAT_R32G32B32_SFLOAT;
+        case VERTEX_FORMAT_F32X4:
+            return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case VERTEX_FORMAT_U32:
+            return VK_FORMAT_R32_UINT;
     }
 
     return VK_FORMAT_UNDEFINED;

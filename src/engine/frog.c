@@ -2,12 +2,16 @@
 #include <stdio.h>
 #include <vulkan/vulkan_core.h>
 
+#include "HandmadeMath.h"
 #include "core.h"
 #include "core_string.h"
 #include "log.h"
 #include "memory_arena.h"
 
+#include "mesh.h"
+#include "mesh_internal.h"
 #include "model.h"
+#include "renderer.h"
 
 #define MAGIC 0x4C444F4D474F5246 // "FROGMODL" little endian
 extern arena_t *g_engine_arena;
@@ -15,6 +19,7 @@ extern arena_t *g_scratch;
 
 static string read_string(arena_t *arena, FILE *file);
 static bool read_vec3(vec3 *out, FILE *file);
+static bool read_quat(quat *out, FILE *file);
 /*
     FILE
       magic              u8[8]      "FROGMODL"
@@ -102,7 +107,7 @@ model_handle_t Frog_LoadModel(const char *path)
     model->animations = arena_push_array(g_engine_arena, model_animation_t, model->animation_count);
 
     // Materials
-    for (int i = 0; i < model->material_count; i++)
+    for (u32 i = 0; i < model->material_count; i++)
     {
         model_material_t *material = &model->materials[i];
 
@@ -125,7 +130,7 @@ model_handle_t Frog_LoadModel(const char *path)
         goto fail;
 
     // Anchor names
-    for (int i = 0; i < model->anchor_count; i++)
+    for (u32 i = 0; i < model->anchor_count; i++)
     {
         string *ptr = &model->anchor_names[i];
         *ptr = read_string(g_engine_arena, file);
@@ -134,10 +139,17 @@ model_handle_t Frog_LoadModel(const char *path)
         Log(DEBUG, "read anchor name: %S", *ptr);
     }
 
+    u32 index_count = header.triangle_count * 3;
+    u32 *indices = arena_push_array(g_scratch, u32, index_count);
+    for (u32 i = 0; i < index_count; i++)
+        indices[i] = i;
+    VkBuffer index_buffer = Renderer_CreateStaticIndexBuffer(indices, index_count);
+
     // Animations
-    for (int i = 0; i< model->material_count; i++)
+    for (u32 anim_idx = 0; anim_idx < model->animation_count; anim_idx++)
     {
-        model_animation_t *animation = &model->animations[i];
+        Log(DEBUG, "anim %u", anim_idx);
+        model_animation_t *animation = &model->animations[anim_idx];
 
         animation->name = read_string(g_engine_arena, file);
         if (!animation->name.len)
@@ -150,9 +162,66 @@ model_handle_t Frog_LoadModel(const char *path)
 
         animation->keyframes = arena_push_array(g_engine_arena, model_keyframe_t, animation->keyframe_count);
 
+        for (u32 key_idx = 0; key_idx < animation->keyframe_count; key_idx++)
+        {
+            model_keyframe_t *keyframe = &animation->keyframes[key_idx];
+
+            if (!fread(&keyframe->time_s, sizeof(f32), 1, file))
+                goto fail;
+            Log(DEBUG, "read anim=%u keyframe %u time=%f", anim_idx, key_idx, keyframe->time_s);
+
+            normal_material_vertex_t *vertex_data = arena_push_array(g_scratch, normal_material_vertex_t, header.triangle_count * 3);
+            for (u32 tri_idx =0; tri_idx < header.triangle_count; tri_idx++)
+            {
+                normal_material_vertex_t *v0 = &vertex_data[tri_idx * 3];
+                normal_material_vertex_t *v1 = &vertex_data[tri_idx * 3 + 1];
+                normal_material_vertex_t *v2 = &vertex_data[tri_idx * 3 + 2];
+
+                if (!read_vec3(&v0->position, file))
+                    goto fail;
+                if (!read_vec3(&v1->position, file))
+                    goto fail;
+                if (!read_vec3(&v2->position, file))
+                    goto fail;
+
+                vec3 normal =
+                    HMM_NormV3(HMM_Cross(HMM_SubV3(v2->position, v0->position), HMM_SubV3(v1->position, v0->position)));
+
+                v0->normal = normal;
+                v1->normal = normal;
+                v2->normal = normal;
+
+                v0->material = triangle_materials[tri_idx];
+                v1->material = triangle_materials[tri_idx];
+                v2->material = triangle_materials[tri_idx];
+                Log(DEBUG, "read triangle keyframe=%u: %v3 %v3 %v3 normal=%v3", key_idx, v0->position, v1->position, v2->position, normal);
+            }
+
+            VkBuffer vertex_buffer = Renderer_CreateStaticVertexBuffer(vertex_data, sizeof(normal_material_vertex_t) * header.triangle_count * 3);
+
+            mesh_t *mesh = arena_push(g_engine_arena, mesh_t);
+            mesh->vertex_buffer = vertex_buffer;
+            mesh->index_buffer = index_buffer;
+            mesh->index_count = index_count;
+
+            Log(DEBUG, "created mesh vertex=%u index=%u count=%u", mesh->vertex_buffer, mesh->index_buffer, mesh->index_count);
+            keyframe->mesh = mesh;
+
+
+            keyframe->anchors = arena_push_array(g_engine_arena, model_anchor_t, header.anchor_count);
+            for (u32 anchor_idx = 0; anchor_idx < header.anchor_count; anchor_idx++)
+            {
+                model_anchor_t *anchor = &keyframe->anchors[anchor_idx];
+                if (!read_vec3(&anchor->pos, file))
+                    goto fail;
+                if (!read_quat(&anchor->orientation, file))
+                    goto fail;
+                Log(DEBUG, "read anchor keyframe=%u: %v3 %v4", anchor->pos, anchor->orientation);
+            }
+        }
     }
 
-
+    handle = model;
 exit:
     fclose(file);
     MemoryArena_Clear(g_scratch);
@@ -188,6 +257,13 @@ fail:
 }
 
 static bool read_vec3(vec3 *out, FILE *file)
+{
+    if (!fread(out->Elements, sizeof(out->Elements), 1, file))
+        return false;
+    return true;
+}
+
+static bool read_quat(quat *out, FILE *file)
 {
     if (!fread(out->Elements, sizeof(out->Elements), 1, file))
         return false;

@@ -36,6 +36,7 @@ typedef enum
     VERTEX_FORMAT_F32X2,
     VERTEX_FORMAT_F32X3,
     VERTEX_FORMAT_F32X4,
+    VERTEX_FORMAT_U32,
 } vertex_format_t;
 
 typedef struct

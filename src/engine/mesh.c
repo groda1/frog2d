@@ -11,6 +11,7 @@
 
 #include "mesh.h"
 #include "mesh_internal.h"
+#include "renderer.h"
 #include "vulkan_renderer.h"
 
 #define MAX_RESOURCE_PATH 512
@@ -36,8 +37,6 @@ static mesh_collection_t *s_meshes;
 
 extern arena_t *g_engine_arena;
 
-static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size);
-static VkBuffer create_static_index_buffer(const u32 *indices, u32 index_count);
 static void obj_next_line(const char **cursor, const char *end, char *buf, u64 buf_size);
 static bool obj_parse_floats(const char *str, f32 *out, u32 count);
 static bool obj_parse_face(const char *str, obj_face_t *face);
@@ -98,21 +97,6 @@ mesh_handle_t MeshManager_LoadMesh(string path) // TODO CANNOT BE STRING
     return MESH_INVALID_HANDLE;
 }
 
-static VkBuffer create_static_vertex_buffer(const void *vertices, u64 size)
-{
-    VkBuffer buffer = VulkanRenderer_CreateStaticVertexBuffer(vertices, size);
-    AssertAlways(buffer != VK_NULL_HANDLE);
-
-    return buffer;
-}
-
-static VkBuffer create_static_index_buffer(const u32 *indices, u32 index_count)
-{
-    VkBuffer buffer = VulkanRenderer_CreateStaticIndexBuffer(indices, index_count);
-    AssertAlways(buffer != VK_NULL_HANDLE);
-
-    return buffer;
-}
 
 /* copies the line at *cursor into buf (null-terminated, CR stripped, truncated
    to buf_size) and advances *cursor past the newline */
@@ -345,8 +329,8 @@ static bool load_obj_mesh(string path, mesh_t *mesh_out)
         vertex_data_size = vertex_count * sizeof(normal_vertex_t);
     }
 
-    mesh_out->vertex_buffer = create_static_vertex_buffer(vertex_data, vertex_data_size);
-    mesh_out->index_buffer = create_static_index_buffer(indices, index_count);
+    mesh_out->vertex_buffer = Renderer_CreateStaticVertexBuffer(vertex_data, vertex_data_size);
+    mesh_out->index_buffer = Renderer_CreateStaticIndexBuffer(indices, index_count);
     mesh_out->index_count = index_count;
     result = true;
 
@@ -390,9 +374,9 @@ static void load_predefined_meshes(void)
         };
         static const u32 indices[] = {0, 1, 2};
 
-        VkBuffer colored_vertex_buffer = create_static_vertex_buffer(colored_vertices, sizeof(colored_vertices));
-        VkBuffer simple_vertex_buffer = create_static_vertex_buffer(simple_vertices, sizeof(simple_vertices));
-        VkBuffer index_buffer = create_static_index_buffer(indices, ArrayCount(indices));
+        VkBuffer colored_vertex_buffer = Renderer_CreateStaticVertexBuffer(colored_vertices, sizeof(colored_vertices));
+        VkBuffer simple_vertex_buffer = Renderer_CreateStaticVertexBuffer(simple_vertices, sizeof(simple_vertices));
+        VkBuffer index_buffer = Renderer_CreateStaticIndexBuffer(indices, ArrayCount(indices));
 
         insert_predefined_mesh(PREDEFINED_MESH_SIMPLE_TRIANGLE, simple_vertex_buffer, index_buffer, ArrayCount(indices));
         insert_predefined_mesh(PREDEFINED_MESH_COLORED_TRIANGLE, colored_vertex_buffer, index_buffer, ArrayCount(indices));
@@ -426,11 +410,11 @@ static void load_predefined_meshes(void)
         };
         static const u32 indices[] = {0, 1, 2, 2, 1, 3};
 
-        VkBuffer simple_vertex_buffer = create_static_vertex_buffer(simple_vertices, sizeof(simple_vertices));
-        VkBuffer normaled_vertex_buffer = create_static_vertex_buffer(normaled_vertices, sizeof(normaled_vertices));
-        VkBuffer colored_vertex_buffer = create_static_vertex_buffer(colored_vertices, sizeof(colored_vertices));
-        VkBuffer textured_vertex_buffer = create_static_vertex_buffer(textured_vertices, sizeof(textured_vertices));
-        VkBuffer index_buffer = create_static_index_buffer(indices, ArrayCount(indices));
+        VkBuffer simple_vertex_buffer = Renderer_CreateStaticVertexBuffer(simple_vertices, sizeof(simple_vertices));
+        VkBuffer normaled_vertex_buffer = Renderer_CreateStaticVertexBuffer(normaled_vertices, sizeof(normaled_vertices));
+        VkBuffer colored_vertex_buffer = Renderer_CreateStaticVertexBuffer(colored_vertices, sizeof(colored_vertices));
+        VkBuffer textured_vertex_buffer = Renderer_CreateStaticVertexBuffer(textured_vertices, sizeof(textured_vertices));
+        VkBuffer index_buffer = Renderer_CreateStaticIndexBuffer(indices, ArrayCount(indices));
 
         insert_predefined_mesh(PREDEFINED_MESH_SIMPLE_QUAD, simple_vertex_buffer, index_buffer, ArrayCount(indices));
         insert_predefined_mesh(PREDEFINED_MESH_NORMALED_QUAD, normaled_vertex_buffer, index_buffer, ArrayCount(indices));
@@ -482,8 +466,8 @@ static void load_predefined_meshes(void)
             20, 22, 21, 20, 23, 22, // -Y
         };
 
-        VkBuffer cube_vertex_buffer = create_static_vertex_buffer(cube_vertices, sizeof(cube_vertices));
-        VkBuffer cube_index_buffer = create_static_index_buffer(cube_indices, ArrayCount(cube_indices));
+        VkBuffer cube_vertex_buffer = Renderer_CreateStaticVertexBuffer(cube_vertices, sizeof(cube_vertices));
+        VkBuffer cube_index_buffer = Renderer_CreateStaticIndexBuffer(cube_indices, ArrayCount(cube_indices));
 
         insert_predefined_mesh(PREDEFINED_MESH_NORMALED_CUBE, cube_vertex_buffer, cube_index_buffer, ArrayCount(cube_indices));
     }

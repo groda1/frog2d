@@ -2,6 +2,9 @@
 
 #include "core.h"
 #include "file.h"
+#include "log.h"
+#include "mesh.h"
+#include "model.h"
 #include "os_path.h"
 #include "image.h"
 #include "mesh_internal.h"
@@ -143,6 +146,17 @@ void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle
     VulkanPass_AddDrawCommand(&draw_command);
 }
 
+void Renderer_DrawModel(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
+                       const void *push_constant_data, model_handle_t model)
+{
+    Assert(model != MODEL_INVALID_HANDLE);
+
+    mesh_handle_t mesh = model->animations[0].keyframes[0].mesh;
+    Renderer_DrawMeshInstanced(pass_handle, pipeline, push_constant_data,
+                               BUFFER_OBJECT_HANDLE_INVALID, 1, mesh);
+}
+
+
 void Renderer_BeginFrame()
 {
     MemoryZeroItem(&g_render_stats);
@@ -153,4 +167,22 @@ void Renderer_BeginFrame()
 bool Renderer_EndFrame()
 {
     return VulkanRenderer_EndFrame();
+}
+
+// TODO refactor out VkBuffer
+VkBuffer Renderer_CreateStaticVertexBuffer(const void *vertices, u64 size)
+{
+    VkBuffer buffer = VulkanRenderer_CreateStaticVertexBuffer(vertices, size);
+    AssertAlways(buffer != VK_NULL_HANDLE);
+
+    return buffer;
+}
+
+// TODO refactor out VkBuffer
+VkBuffer Renderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count)
+{
+    VkBuffer buffer = VulkanRenderer_CreateStaticIndexBuffer(indices, index_count);
+    AssertAlways(buffer != VK_NULL_HANDLE);
+
+    return buffer;
 }

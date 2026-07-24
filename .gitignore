@@ -3,3 +3,4 @@
 .vscode
 /tools/__pycache__/
 /tools/*.frog
+*.blend1

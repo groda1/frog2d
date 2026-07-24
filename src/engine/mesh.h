@@ -37,7 +37,7 @@ typedef struct _normal_vertex_t normal_vertex_t;
 typedef struct _colored_vertex_t colored_vertex_t;
 typedef struct _textured_vertex_t textured_vertex_t;
 typedef struct _textured_normal_vertex_t textured_normal_vertex_t;
-
+typedef struct _normal_material_vertex_t normal_material_vertex_t;
 struct _simple_vertex_t
 {
     vec3 position;
@@ -61,13 +61,18 @@ struct _textured_vertex_t
     vec2 texture_coord;
 };
 
-/* loaded meshes (obj) with uvs use this layout; without uvs they use
-   normal_vertex_t (normals are zero when the file has none) */
 struct _textured_normal_vertex_t
 {
     vec3 position;
     vec3 normal;
     vec2 texture_coord;
+};
+
+struct _normal_material_vertex_t
+{
+    vec3 position;
+    vec3 normal;
+    u32 material;
 };
 
 bool MeshManager_Init();

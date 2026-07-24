@@ -1,7 +1,10 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
+#include <vulkan/vulkan_core.h> // TODO refactor out
+
 #include "mesh.h"
+#include "model.h"
 #include "render_types.h"
 
 typedef struct
@@ -67,6 +70,13 @@ void Renderer_DrawMeshInstanced(renderpass_handle_t pass_handle, pipeline_handle
                                 buffer_object_handle_t instance_buffer, u32 instance_count,
                                 mesh_handle_t mesh);
 
+void Renderer_DrawModel(renderpass_handle_t pass_handle, pipeline_handle_t pipeline,
+                       const void *push_constant_data, model_handle_t model);
+
 void Renderer_BeginFrame();
 bool Renderer_EndFrame();
+
+VkBuffer Renderer_CreateStaticVertexBuffer(const void *vertices, u64 size);
+VkBuffer Renderer_CreateStaticIndexBuffer(const u32 *indices, u32 index_count);
+
 #endif

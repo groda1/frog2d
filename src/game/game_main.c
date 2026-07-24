@@ -8,6 +8,7 @@
 #include "game_main.h"
 #include "memory_arena.h"
 #include "mesh.h"
+#include "model.h"
 #include "platform.h"
 #include "render_types.h"
 #include "renderer.h"
@@ -56,6 +57,8 @@ typedef struct
 
     mesh_handle_t cube_mesh;
     mesh_handle_t player_mesh;
+    model_handle_t player_model;
+
     pipeline_handle_t tile_pipeline;
     pipeline_handle_t player_pipeline;
     buffer_object_handle_t vp_uniform;
@@ -144,21 +147,26 @@ bool Game_Init(platform_window_t *window)
 
     pipeline_config_t player_pipeline_config = {
         .name = "player",
-        .vertex_shader = Renderer_LoadShader("shaders/player.vert.spv"),
-        .fragment_shader = Renderer_LoadShader("shaders/player.frag.spv"),
+        .vertex_shader = Renderer_LoadShader("shaders/frog_player.vert.spv"),
+        .fragment_shader = Renderer_LoadShader("shaders/frog_player.frag.spv"),
         .push_constant_size = sizeof(flat_push_constant_t),
-        .vertex_stride = sizeof(normal_vertex_t),
+        .vertex_stride = sizeof(normal_material_vertex_t),
         .vertex_attribute_count = 2,
         .vertex_attributes = {
             {
                 .location = 0,
                 .format = VERTEX_FORMAT_F32X3,
-                .offset = offsetof(normal_vertex_t, position),
+                .offset = offsetof(normal_material_vertex_t, position),
             },
             {
                 .location = 1,
                 .format = VERTEX_FORMAT_F32X3,
-                .offset = offsetof(normal_vertex_t, normal),
+                .offset = offsetof(normal_material_vertex_t, normal),
+            },
+            {
+                .location = 2,
+                .format = VERTEX_FORMAT_U32,
+                .offset = offsetof(normal_material_vertex_t, material),
             },
         },
         .uniform_binding_count = 1,
@@ -180,6 +188,7 @@ bool Game_Init(platform_window_t *window)
     }
 
     g_game.player_mesh = MeshManager_LoadMesh(string_lit("resources/models/suzanne.obj"));
+    g_game.player_model = Frog_LoadModel("resources/models/human.frog");
 
     g_game.player_pos_x = GRID_WIDTH / 2;
     g_game.player_pos_y = GRID_HEIGHT / 2;
@@ -190,7 +199,6 @@ bool Game_Init(platform_window_t *window)
     g_game.player_gfx_target_rot = g_game.player_gfx_rot;
     g_game.camera_target = g_game.player_gfx_pos;
 
-    Frog_LoadModel("resources/models/test_model.frog");
 
     return true;
 }
@@ -410,16 +418,14 @@ static void draw_player(void)
         .transform = HMM_MulM4(
                         HMM_Translate( g_game.player_gfx_pos),
                         HMM_MulM4(
-                            HMM_MulM4(
-                                HMM_Rotate_RH(HMM_AngleDeg(-25), V3(1.0f, 0.0f, 0.0f)),
-                                HMM_Rotate_RH(HMM_AngleDeg(g_game.player_gfx_rot), V3(0.0f, 1.0f, 0.0f))),
+                            HMM_Rotate_RH(HMM_AngleDeg(g_game.player_gfx_rot), V3(0.0f, 1.0f, 0.0f)),
                             HMM_Scale(V3(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE))
                         )
                     ),
         .color = PLAYER_COLOR,
     };
-    Renderer_DrawMesh(SWAPCHAIN_PASS_HANDLE, g_game.player_pipeline,
-                      &push_constant, g_game.player_mesh);
+    Renderer_DrawModel(SWAPCHAIN_PASS_HANDLE, g_game.player_pipeline,
+                      &push_constant, g_game.player_model);
 }
 
 
