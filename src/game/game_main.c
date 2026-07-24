@@ -14,10 +14,8 @@
 #include "renderer.h"
 #include "frog.h"
 
-/* milestone 0 sandbox: a grid and a movable cube, for tuning camera and feel */
-
-#define GRID_WIDTH              24
-#define GRID_HEIGHT             16
+#define GRID_WIDTH              48
+#define GRID_HEIGHT             32
 #define TILE_GAP                0.0f
 #define TILE_THICKNESS          0.3f
 #define TILE_COLOR_A            V4(0.30f, 0.32f, 0.28f, 1.0f)
@@ -29,14 +27,27 @@
 #define PLAYER_BUMP_SPEED       5.0f
 #define PLAYER_BUMP_DISTANCE    0.3f
 
-#define CAMERA_PITCH_DEG        55.0f
-#define CAMERA_DISTANCE         9.0f
-#define CAMERA_FOV_DEG          60.0f
-#define CAMERA_FOLLOW_SPEED     8.0f
+
 #define CAMERA_BOT_CLAMP -2.0f
 #define CAMERA_TOP_CLAMP 5.0f
 #define CAMERA_RIGHT_CLAMP 7.0f
 #define CAMERA_LEFT_CLAMP 7.0f
+
+#define CAMERA_DEFAULT_PITCH_DEG    65.0f
+#define CAMERA_DEFAULT_DISTANCE     9.0f
+#define CAMERA_DEFAULT_FOV_DEG      60.0f
+
+#define CAMERA_CLOSEUP_DISTANCE     4.0f
+#define CAMERA_CLOSEUP_EYE_HEIGHT   2.5f
+#define CAMERA_CLOSEUP_LOOK_HEIGHT  0.5f
+#define CAMERA_CLOSEUP_FOV_DEG      35.0f
+
+#define CAMERA_OVERVIEW_RADIUS      10.0f
+
+#define CAMERA_FOLLOW_SPEED         8.0f
+#define CAMERA_FLY_SPEED            2.5f
+#define CAMERA_NEAR                 0.1f
+#define CAMERA_FAR                  100.0f
 
 typedef struct
 {
@@ -50,6 +61,21 @@ typedef enum
     PLAYER_ANIM_MOVE,
     PLAYER_ANIM_BUMP,
 } player_anim_t;
+
+typedef enum
+{
+    CAMERA_MODE_DEFAULT,
+    CAMERA_MODE_CLOSEUP,
+    CAMERA_MODE_OVERVIEW,
+} camera_mode_t;
+
+typedef struct
+{
+    vec3 eye;
+    vec3 look;
+    vec3 up;
+    mat4 proj;
+} camera_rig_t;
 
 typedef struct
 {
@@ -79,6 +105,11 @@ typedef struct
     f32  player_gfx_target_rot;
 
     vec3 camera_target;     /* smoothed follow point */
+    camera_mode_t camera_mode;
+    f32 camera_blend;       /* 0 -> 1 progress from the snapshot to the rig */
+
+    camera_rig_t camera_cur;
+    camera_rig_t camera_from;
 
 } game_t;
 
@@ -88,6 +119,8 @@ static void update_player(f32 delta_time);
 static void update_player_move(f32 delta_time);
 static void update_player_bump(f32 delta_time);
 static void update_camera(f32 delta_time);
+static camera_rig_t camera_rig_for(camera_mode_t mode, f32 aspect);
+static void camera_set_mode(camera_mode_t mode);
 static void draw_grid(void);
 static void draw_player(void);
 static vec3 tile_center(i32 x, i32 y);
@@ -198,7 +231,8 @@ bool Game_Init(platform_window_t *window)
     g_game.player_gfx_rot = 0.0f;
     g_game.player_gfx_target_rot = g_game.player_gfx_rot;
     g_game.camera_target = g_game.player_gfx_pos;
-
+    g_game.camera_mode = CAMERA_MODE_DEFAULT;
+    g_game.camera_blend = 1.0f;     /* already settled on the default rig */
 
     return true;
 }
@@ -218,6 +252,22 @@ void Game_HandleKeyDown(key_code_t key)
 
     if (Engine_HandleKeyDown(key) == KEY_EVENT_CONSUMED)
         return;
+
+    if (key == KEY_V)
+    {
+        camera_set_mode(game->camera_mode == CAMERA_MODE_CLOSEUP
+                            ? CAMERA_MODE_DEFAULT
+                            : CAMERA_MODE_CLOSEUP);
+        return;
+    }
+
+    if (key == KEY_O)
+    {
+        camera_set_mode(game->camera_mode == CAMERA_MODE_OVERVIEW
+                            ? CAMERA_MODE_DEFAULT
+                            : CAMERA_MODE_OVERVIEW);
+        return;
+    }
 
     if (game->player_anim == PLAYER_ANIM_NONE)
     {
@@ -361,6 +411,81 @@ static void update_player_bump(f32 delta_time)
     }
 }
 
+static camera_rig_t camera_rig_for(camera_mode_t mode, f32 aspect)
+{
+    game_t *game = &g_game;
+
+    camera_rig_t rig = {
+        .up = V3(0.0f, 1.0f, 0.0f),
+    };
+
+    switch (mode)
+    {
+        case CAMERA_MODE_CLOSEUP:
+        {
+            /* parked due south of the player (+Z), whichever way it faces */
+            rig.eye = HMM_AddV3(game->player_gfx_pos,
+                                V3(0.0f,
+                                   CAMERA_CLOSEUP_EYE_HEIGHT,
+                                   CAMERA_CLOSEUP_DISTANCE));
+            rig.look = HMM_AddV3(game->player_gfx_pos,
+                                 V3(0.0f, CAMERA_CLOSEUP_LOOK_HEIGHT, 0.0f));
+            rig.proj = HMM_Perspective_RH_ZO(HMM_AngleDeg(CAMERA_CLOSEUP_FOV_DEG),
+                                             aspect, CAMERA_NEAR, CAMERA_FAR);
+            break;
+        }
+        case CAMERA_MODE_OVERVIEW:
+        {
+            /* a fixed window around the player, not the whole map */
+            vec3 center = V3(game->player_gfx_pos.X, 0.0f, game->player_gfx_pos.Z);
+
+            f32 half_w = CAMERA_OVERVIEW_RADIUS;
+            f32 half_h = CAMERA_OVERVIEW_RADIUS;
+            if (aspect >= 1.0f)
+                half_w = half_h * aspect;
+            else
+                half_h = half_w / aspect;
+
+            f32 height = half_h / HMM_TanF(HMM_AngleDeg(CAMERA_DEFAULT_FOV_DEG) * 0.5f);
+
+            rig.eye = HMM_AddV3(center, V3(0.0f, height, 0.0f));
+            rig.look = center;
+            rig.up = V3(0.0f, 0.0f, -1.0f);
+            rig.proj = HMM_Orthographic_RH_ZO(-half_w, half_w, -half_h, half_h,
+                                              CAMERA_NEAR, CAMERA_FAR);
+            break;
+        }
+        case CAMERA_MODE_DEFAULT:
+        default:
+        {
+            f32 pitch = HMM_AngleDeg(CAMERA_DEFAULT_PITCH_DEG);
+
+            rig.eye = HMM_AddV3(game->camera_target,
+                                V3(0.0f,
+                                   HMM_SinF(pitch) * CAMERA_DEFAULT_DISTANCE,
+                                   HMM_CosF(pitch) * CAMERA_DEFAULT_DISTANCE));
+            rig.look = game->camera_target;
+            rig.proj = HMM_Perspective_RH_ZO(HMM_AngleDeg(CAMERA_DEFAULT_FOV_DEG),
+                                             aspect, CAMERA_NEAR, CAMERA_FAR);
+            break;
+        }
+    }
+
+    return rig;
+}
+
+static void camera_set_mode(camera_mode_t mode)
+{
+    game_t *game = &g_game;
+
+    if (game->camera_mode == mode)
+        return;
+
+    game->camera_from = game->camera_cur;
+    game->camera_blend = 0.0f;
+    game->camera_mode = mode;
+}
+
 static void update_camera(f32 delta_time)
 {
     game_t *game = &g_game;
@@ -376,19 +501,28 @@ static void update_camera(f32 delta_time)
         .Z = Clamp(-GRID_HEIGHT + CAMERA_TOP_CLAMP, game->player_gfx_pos.Z, CAMERA_BOT_CLAMP),
     };
 
+    /* the follow point keeps tracking while in close-up, so toggling back
+       resumes where the follow camera would have been instead of snapping */
     game->camera_target = lerp(game->camera_target, follow, new_target);
 
-    f32 pitch = HMM_AngleDeg(CAMERA_PITCH_DEG + 10);
-    vec3 offset = V3(0.0f,
-                     HMM_SinF(pitch) * CAMERA_DISTANCE,
-                     HMM_CosF(pitch) * CAMERA_DISTANCE);
-    vec3 eye = HMM_AddV3(game->camera_target, offset);
+    f32 step = CAMERA_FLY_SPEED * delta_time;
+    game->camera_blend = Min(game->camera_blend + step, 1.0f);
+
+    camera_rig_t rig = camera_rig_for(game->camera_mode,
+                                      (f32)extent.width / (f32)extent.height);
+
+    f32 t = smoothstep(game->camera_blend);
+    game->camera_cur.eye  = lerp(game->camera_from.eye, t, rig.eye);
+    game->camera_cur.look = lerp(game->camera_from.look, t, rig.look);
+    game->camera_cur.up   = lerp(game->camera_from.up, t, rig.up);
+    game->camera_cur.proj = HMM_AddM4(HMM_MulM4F(game->camera_from.proj, 1.0f - t),
+                                      HMM_MulM4F(rig.proj, t));
 
     view_projection_t vp = {
-        .view = HMM_LookAt_RH(eye, game->camera_target, V3(0.0f, 1.0f, 0.0f)),
-        .proj = HMM_Perspective_RH_NO(HMM_AngleDeg(CAMERA_FOV_DEG),
-                                      (f32)extent.width / (f32)extent.height,
-                                      0.1f, 100.0f),
+        .view = HMM_LookAt_RH(game->camera_cur.eye,
+                              game->camera_cur.look,
+                              game->camera_cur.up),
+        .proj = game->camera_cur.proj,
     };
     Renderer_SetBufferObject(g_game.vp_uniform, &vp, sizeof(vp));
 }
